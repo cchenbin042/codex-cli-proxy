@@ -13,6 +13,7 @@ class Config:
     api_base: str
     api_keys: list[str]
     model_map: dict[str, str]
+    thinking_disabled: bool = False
     _key_index: int = field(default=0, repr=False)
 
     def get_api_key(self) -> str:
@@ -56,4 +57,5 @@ def load_config(path: str = "config.yaml") -> Config:
         api_base=deepseek.get("api_base", "https://api.deepseek.com"),
         api_keys=valid_keys,
         model_map=data.get("model_map", {}),
+        thinking_disabled=deepseek.get("thinking_disabled", False),
     )

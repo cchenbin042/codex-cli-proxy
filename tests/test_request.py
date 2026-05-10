@@ -257,6 +257,117 @@ class TestFieldPassthrough:
         result = convert_request(body, model_map)
         assert "reasoning" not in result
 
+    def test_tools_filters_non_function_types(self):
+        """Non-function tools (web_search, etc.) should be removed."""
+        tools = [
+            {"type": "web_search_preview"},
+            {"type": "function", "function": {"name": "shell", "parameters": {}}},
+            {"type": "code_interpreter"},
+        ]
+        body = {"tools": tools, "input": []}
+        result = convert_request(body, {})
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["type"] == "function"
+
+    def test_tools_all_filtered_skips_field(self):
+        """When all tools are non-function, tools field should be absent."""
+        tools = [{"type": "web_search_preview"}, {"type": "image_generation"}]
+        body = {"tools": tools, "input": []}
+        result = convert_request(body, {})
+        assert "tools" not in result
+
+    def test_flat_tools_wrapped_to_nested(self):
+        """Responses API flat tools converted to nested function format."""
+        tools = [
+            {"type": "function", "name": "shell",
+             "description": "Run a command", "parameters": {"type": "object"}},
+        ]
+        body = {"tools": tools, "input": []}
+        result = convert_request(body, {})
+        assert len(result["tools"]) == 1
+        t = result["tools"][0]
+        assert t["type"] == "function"
+        assert t["function"]["name"] == "shell"
+        assert t["function"]["description"] == "Run a command"
+        assert t["function"]["parameters"] == {"type": "object"}
+
+
+class TestReasoningContent:
+    """Tests for reasoning_content attachment / index alignment."""
+
+    SID = "test-session-123"
+
+    def teardown_method(self):
+        """Clean up module-level state between tests."""
+        from src import store
+        store._stores.pop(self.SID, None)
+
+    def test_consecutive_assistant_items_share_reasoning(self):
+        """message + function_call from the same turn share one reasoning entry."""
+        from src import store
+
+        store.get(self.SID).clear()
+        store.get(self.SID).append("DeepSeek was thinking...")
+
+        body = {
+            "instructions": "Be helpful.",
+            "input": [
+                {"type": "message", "role": "user",
+                 "content": [{"type": "input_text", "text": "Hi"}]},
+                # Same turn: text + tool_call — should share one reasoning entry
+                {"type": "message", "role": "assistant",
+                 "content": [{"type": "input_text", "text": "Let me check."}]},
+                {"type": "function_call", "call_id": "c1", "name": "search",
+                 "arguments": '{"q": "x"}'},
+                {"type": "function_call_output", "call_id": "c1",
+                 "output": "result"},
+                # Next turn: another assistant, needs own reasoning
+                {"type": "message", "role": "assistant",
+                 "content": [{"type": "input_text", "text": "The answer is 42."}]},
+            ],
+        }
+        result = convert_request(body, {}, self.SID)
+
+        # Merged assistant message (text + function_call) gets reasoning_content
+        assert result["messages"][2].get("reasoning_content") == "DeepSeek was thinking..."
+        assert result["messages"][2]["role"] == "assistant"
+        assert result["messages"][2]["content"] == "Let me check."
+        assert len(result["messages"][2]["tool_calls"]) == 1
+        assert result["messages"][2]["tool_calls"][0]["function"]["name"] == "search"
+
+        # Tool result follows (no reasoning)
+        assert result["messages"][3]["role"] == "tool"
+
+        # The second-turn assistant should NOT get reasoning (no second entry in store)
+        assert "reasoning_content" not in result["messages"][4]
+
+    def test_standalone_function_call_gets_own_reasoning(self):
+        """function_call without preceding assistant message gets its own reasoning."""
+        from src import store
+
+        store.get(self.SID).clear()
+        store.get(self.SID).extend(["reasoning turn 1", "reasoning turn 2"])
+
+        body = {
+            "instructions": "Be helpful.",
+            "input": [
+                {"type": "message", "role": "user",
+                 "content": [{"type": "input_text", "text": "Search."}]},
+                {"type": "function_call", "call_id": "c1", "name": "search",
+                 "arguments": '{}'},
+                {"type": "function_call_output", "call_id": "c1",
+                 "output": "r1"},
+                {"type": "function_call", "call_id": "c2", "name": "search",
+                 "arguments": '{}'},
+                {"type": "function_call_output", "call_id": "c2",
+                 "output": "r2"},
+            ],
+        }
+        result = convert_request(body, {}, self.SID)
+
+        assert result["messages"][2].get("reasoning_content") == "reasoning turn 1"
+        assert result["messages"][4].get("reasoning_content") == "reasoning turn 2"
+
 
 class TestFullConversion:
     def test_complete_multi_turn(self):

@@ -131,7 +131,7 @@ class TestStreamEndpoint:
     def test_stream_response_media_type(self):
         """Stream response has content-type text/event-stream."""
 
-        async def mock_event_stream(ds_payload, api_base, api_key):
+        async def mock_event_stream(ds_payload, api_base, api_key, session_id=""):
             yield _sse_event("response.created", {"type": "response.created"})
             yield _sse_event("response.completed", {"type": "response.completed"})
 
@@ -153,7 +153,7 @@ class TestStreamEndpoint:
     def test_stream_request_passes_stream_flag(self):
         """Verify stream=True is passed in the converted payload."""
 
-        async def mock_event_stream(ds_payload, api_base, api_key):
+        async def mock_event_stream(ds_payload, api_base, api_key, session_id=""):
             # Verify the stream flag is in the DeepSeek payload
             assert ds_payload["stream"] is True
             yield _sse_event("response.created", {"type": "response.created"})
