@@ -1,208 +1,153 @@
 # cli-proxy
 
-Codex CLI → DeepSeek API 协议转换代理，将 OpenAI Responses API 请求转换为 DeepSeek Chat Completions API 格式，并反向转换响应。
-
-## 功能特性
-
-- **请求转换** — 将 Codex CLI 的 Responses API 请求体转换为 Chat Completions 格式
-- **响应转换** — 非流式 JSON 与流式 SSE 两种响应模式均支持
-- **流式事件处理** — 完整实现 SSE 事件状态机（`response.created` → `delta` → `response.completed`）
-- **工具调用透传** — 支持 function_call / function_call_output 的多轮工具调用循环
-- **模型映射** — 通过配置文件灵活映射模型名称（如 `gpt-5.5` → `deepseek-v4-pro`）
-- **多 Key 轮询** — 支持配置多个 API Key 并自动轮换
-- **结构化日志** — 每次请求打印模型、消息数、耗时摘要
-
-## 技术栈
-
-| 类别 | 技术 |
-|------|------|
-| 运行时 | Python 3.11+ |
-| Web 框架 | FastAPI |
-| 服务器 | uvicorn |
-| HTTP 客户端 | httpx（异步、连接池复用） |
-| 配置解析 | PyYAML |
-| 测试 | pytest + pytest-asyncio |
+Codex CLI/Desktop → DeepSeek API 协议转换代理。将 OpenAI Responses API 请求转换为 DeepSeek Chat Completions API 格式，并反向转换响应。监听 8317 端口。
 
 ## 架构
 
 ```
-Codex CLI → POST /v1/responses → request.py 转换 → DeepSeek API
-                                                        ↓
-Codex CLI ← StreamingResponse / JSON ← response.py 转换 ←─┘
+Codex CLI/Desktop → POST /v1/responses → request.py → DeepSeek /v1/chat/completions
+                                                 ↓
+Codex CLI/Desktop ← StreamingResponse/JSON ← response.py ←── DeepSeek SSE/JSON
+                                                 ↑
+                                            store.py（reasoning 持久化）
 ```
 
-## 项目结构
+四层模块，纯函数风格，通过 FastAPI 入口协调：
 
-```
-cli-proxy/
-├── config.yaml              # 模型映射、API Key 等配置
-├── requirements.txt         # Python 依赖
-├── src/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI 应用入口，/v1/responses 路由
-│   ├── config.py            # 配置加载与管理（Config 数据类）
-│   ├── converter/
-│   │   ├── __init__.py
-│   │   ├── request.py       # 请求转换纯函数
-│   │   └── response.py      # 响应转换 + SSE 流生成器
-│   └── logger.py            # 结构化请求日志
-├── tests/
-│   └── fixtures/            # 测试用例数据
-└── docs/
-    └── superpowers/
-        ├── specs/           # 设计文档
-        └── plans/           # 实施计划
-```
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| 入口 | `src/main.py` | FastAPI 应用，挂载 `/v1/responses` 和 `/health`，按 `session_id` 透传 |
+| 配置 | `src/config.py` | `Config` 数据类 + `load_config(path)`，含 Key 轮询、模型映射、思考开关 |
+| 请求转换 | `src/converter/request.py` | `convert_request(body, model_map, session_id, thinking_disabled)` |
+| 响应转换 | `src/converter/response.py` | `convert_nonstream(ds_resp, session_id)` + 异步生成器 `stream_generator(payload, api_base, api_key, session_id)` |
+| 状态持久化 | `src/store.py` | 按 `session_id` 索引的 reasoning_store，启动加载/追加写盘 |
+| 日志 | `src/logger.py` | 双向日志：用户对话摘要 + DeepSeek 响应 + Codex 转换结果 |
 
 ## 安装与运行
 
-### 环境要求
-
-- Python 3.11 及以上
-- DeepSeek API Key
-
-### 安装
-
 ```bash
-# 克隆仓库
-git clone https://github.com/cchenbin042/codex-cli-proxy.git
-cd cli-proxy
-
-# 创建虚拟环境（可选）
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
-
 # 安装依赖
 pip install -r requirements.txt
+
+# 配置 API Key（编辑 config.yaml）
+# deepseek.api_keys 下替换 sk-xxx 为真实 key
+
+# 启动
+uvicorn src.main:app --host 0.0.0.0 --port 8317
+
+# 健康检查
+curl http://localhost:8317/health
+
+# 运行测试
+pytest tests/ -v
 ```
 
-### 配置
-
-编辑项目根目录下的 `config.yaml`，将 `sk-xxx` 替换为你的 DeepSeek API Key：
+## 配置说明（config.yaml）
 
 ```yaml
+server:
+  host: "0.0.0.0"
+  port: 8317
+
 deepseek:
+  api_base: "https://api.deepseek.com"
   api_keys:
-    - "sk-your-actual-key-here"   # 支持多个 Key 轮询
-```
+    - "sk-xxx"                    # 替换为真实 Key
+  thinking_disabled: true         # 关闭 DeepSeek 思考模式，加速响应
 
-模型映射可按需调整：
-
-```yaml
 model_map:
   "gpt-5.5": "deepseek-v4-pro"
   "gpt-5.4": "deepseek-v4-pro"
-  "gpt-5.4-mini": "deepseek-v4-pro"
+  "deepseek-v4-pro": "deepseek-v4-pro"
 ```
-
-### 启动
-
-```bash
-uvicorn src.main:app --host 0.0.0.0 --port 8317
-```
-
-服务启动后监听 `http://localhost:8317`。
-
-## 使用说明
-
-### 配置 Codex CLI
-
-设置 Codex CLI 使用本地代理作为 API 后端：
-
-```bash
-export CODEX_API_BASE_URL="http://localhost:8317/v1"
-```
-
-或等价的环境变量，具体取决于 Codex CLI 版本。
-
-### 健康检查
-
-```bash
-curl http://localhost:8317/health
-# → {"status":"ok"}
-```
-
-### 发送测试请求
-
-```bash
-curl -X POST http://localhost:8317/v1/responses \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "deepseek-v4-pro",
-    "input": [
-      {
-        "type": "message",
-        "role": "user",
-        "content": [{"type": "input_text", "text": "你好"}]
-      }
-    ],
-    "stream": false
-  }'
-```
-
-### 运行测试
-
-```bash
-# 运行全部测试
-pytest tests/ -v
-
-# 运行单模块测试
-pytest tests/test_request.py -v
-pytest tests/test_response.py -v
-```
-
-### API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/v1/responses` | 代理入口，支持流式/非流式 |
-| `GET` | `/health` | 健康检查 |
-
-## 配置说明
-
-所有配置均在 `config.yaml` 中：
 
 | 配置项 | 类型 | 说明 |
 |--------|------|------|
 | `server.host` | string | 监听地址，默认 `0.0.0.0` |
 | `server.port` | int | 监听端口，默认 `8317` |
 | `deepseek.api_base` | string | DeepSeek API 地址 |
-| `deepseek.api_keys` | list | API Key 列表，请求时轮询使用 |
+| `deepseek.api_keys` | list | API Key 列表，请求时轮询 |
+| `deepseek.thinking_disabled` | bool | 关闭 DeepSeek 思考模式（默认 false） |
 | `model_map` | dict | Codex 模型名 → DeepSeek 模型名映射 |
 
-## 数据流
+## 请求转换规则
 
-### 请求转换 (Responses → Chat Completions)
+### 消息转换
 
-| Codex 字段 | DeepSeek 字段 | 处理 |
-|-----------|--------------|------|
-| `model` | `model` | 查映射表替换 |
-| `instructions` | `messages[0]` | 作为 system 角色首条消息 |
-| `input[]` | `messages[1:]` | 逐条按类型转换 |
-| `tools` / `tool_choice` | 同名 | 直接透传 |
-| `stream` | `stream` | 直接透传 |
-| `reasoning` | — | 丢弃 |
-
-### input 类型转换
-
-| input type | 输出 message |
-|-----------|-------------|
-| `message` | `{"role": "...", "content": "..."}` |
-| `function_call` | `{"role": "assistant", "content": null, "tool_calls": [...]}` |
+| Codex input type | DeepSeek message |
+|-----------------|-----------------|
+| `message` (user/assistant) | `{"role": "...", "content": "..."}` |
+| `message` (developer) | `{"role": "system", "content": "..."}` |
+| `function_call` | 合并到上一条 assistant 的 `tool_calls[]` 中 |
 | `function_call_output` | `{"role": "tool", "tool_call_id": "...", "content": "..."}` |
 | `reasoning` | 跳过 |
 
-## 贡献指南
+同一轮连续的 `message(assistant)` + `function_call` 项合并为一条 DeepSeek assistant 消息，所有 tool_calls 聚合在一起。
 
-1. Fork 本仓库
-2. 基于 `master` 创建特性分支：`git checkout -b feature/xxx`
-3. 编写代码和测试，确保 `pytest tests/ -v` 全部通过
-4. 提交并使用清晰的 commit message
-5. 推送到你的 Fork 并提交 Pull Request
+### 字段映射
 
-## 许可证
+| Codex 字段 | DeepSeek 字段 | 处理 |
+|-----------|--------------|------|
+| `instructions` | `messages[0]` | 作为 system 角色 |
+| `model` | `model` | 查 model_map 替换，未匹配则透传 |
+| `tools` / `tool_choice` | 同名 | 过滤非 function 工具，扁平 tools 包装为嵌套格式 |
+| `temperature` / `stream` | 同名 | 直接透传 |
+| `max_output_tokens` | `max_tokens` | 重命名 |
+| `reasoning` | — | 丢弃 |
+| — | `thinking` | `thinking_disabled=true` 时注入 `{"type": "disabled"}` |
 
-MIT License
+### reasoning_content 处理
 
-Copyright (c) 2026
+- 每条成功的 DeepSeek 响应提取 `reasoning_content`，按 `session_id` 存入 `reasoning_store`
+- 后续请求中的 assistant 消息自动附加对应的 `reasoning_content`
+- store 持久化到 `reasoning_stores.json`，proxy 重启后自动恢复
+- 检测到新对话（assistant 轮次为 0 但 store 非空）时自动重置
+
+### 工具过滤
+
+DeepSeek 不支持 `web_search`、`code_interpreter` 等非 function 工具，proxy 自动过滤，仅保留 function 类型。
+
+## 响应转换规则
+
+### 流式 (SSE)
+
+状态机流程：`init → text → (optional) tool_calls → completed`
+
+| SSE Event | 说明 |
+|-----------|------|
+| `response.created` | 创建响应 |
+| `response.in_progress` | 开始处理 |
+| `response.output_item.added` | 新增输出项（message 或 function_call） |
+| `response.content_part.added` | 新增内容片段 |
+| `response.output_text.delta` | 文本增量 |
+| `response.function_call_arguments.delta` | 工具调用参数增量 |
+| `response.content_part.done` | 内容片段完成 |
+| `response.output_item.done` | 输出项完成 |
+| `response.completed` | 响应完成 |
+
+### 非流式
+
+直接返回完整的 Codex Responses API 格式 JSON，包含 `id`、`object`、`status`、`output`、`usage`。
+
+## 技术细节
+
+| 项目 | 说明 |
+|------|------|
+| HTTP 客户端 | httpx AsyncClient，连接 10s / 读取 120s / 写入 60s 超时 |
+| 流式 SSE 格式 | `event: <type>\ndata: <json>\n\n` |
+| ID 生成 | `uuid.uuid4().hex[:12]` 带前缀（`resp_`、`item_msg_`、`call_`） |
+| API Key 轮询 | 每次请求取下一个 key，循环使用 |
+| reasoning 持久化 | 按 session_id 索引，JSON 文件存储，追加后即时写盘 |
+
+## 日志示例
+
+```
+Request: model=deepseek-v4-pro, messages=7, stream=True
+  [user] 帮我用node.js+HTML实现用户注册...
+  [tool_call] shell({"command":"ls"})
+  [tool_result] {"files":["test.py"]}
+DeepSeek -> tool_call: write_file({"path":"C:\\...","content":"..."})
+DeepSeek -> usage: prompt=15814 completion=380 total=16194 reasoning=0
+Codex <- message: 好的，我先创建项目文件...
+Response: model=deepseek-v4-pro, elapsed=3241ms, status=completed
+```
