@@ -31,3 +31,6 @@ Thumbs.db
 
 # pytest
 .pytest_cache/
+
+# Reasoning persistence (session data, should not be shared)
+reasoning_stores.json
