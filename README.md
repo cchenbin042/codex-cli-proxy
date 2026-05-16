@@ -1,4 +1,4 @@
-# cli-proxy
+# codex-cli-proxy
 
 Codex CLI/Desktop → DeepSeek API 协议转换代理。将 OpenAI Responses API 请求转换为 DeepSeek Chat Completions API 格式，并反向转换响应。监听 8317 端口。
 
