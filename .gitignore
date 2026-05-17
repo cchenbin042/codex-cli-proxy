@@ -34,3 +34,6 @@ Thumbs.db
 
 # Reasoning persistence (session data, should not be shared)
 reasoning_stores.json
+
+# Code review cache (local optimization, never commit)
+.claude/code-review-cache.json
