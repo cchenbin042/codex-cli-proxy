@@ -41,5 +41,8 @@ reasoning_stores.json
 # Generated docs and plans
 docs/
 
-# Tests (tracked via git, not ignored)
-# tests/
+# Tests
+tests/
+
+# Daily review reports
+reports/
