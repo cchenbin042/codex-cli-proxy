@@ -3,6 +3,7 @@
 import time
 import sys
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
@@ -19,6 +20,7 @@ from src.converter.request import convert_request
 from src.converter.response import convert_nonstream, stream_generator
 from src.logger import (log_request, log_response, log_error, log_conversation,
                          log_upstream_response, log_downstream_response)
+from src.tracer import TraceMiddleware
 
 _handler = logging.StreamHandler(sys.stdout)
 _handler.setFormatter(logging.Formatter(
@@ -36,7 +38,22 @@ _logger = logging.getLogger("cli-proxy.debug")
 
 config: Config = load_config(DEFAULT_CONFIG_PATH)
 store.init(str(PROJECT_ROOT / "reasoning_stores.json"))
-app = FastAPI(title="cli-proxy", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Create and cleanup a shared httpx.AsyncClient for connection pooling."""
+    application.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+    )
+    _logger.info("Shared httpx.AsyncClient created (max_connections=%d, max_keepalive=%d)", 20, 10)
+    yield
+    await application.state.http.aclose()
+    _logger.info("Shared httpx.AsyncClient closed")
+
+
+app = FastAPI(title="cli-proxy", version="0.1.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -46,6 +63,11 @@ async def debug_middleware(request: Request, call_next):
     response = await call_next(request)
     _logger.info("<<< %s %s  status=%s", request.method, request.url.path, response.status_code)
     return response
+
+
+# TraceMiddleware added after debug_middleware so it's outermost (runs first)
+# This ensures trace_id is set before any logging happens.
+app.add_middleware(TraceMiddleware)
 
 
 @app.post("/v1/responses")
@@ -88,7 +110,8 @@ async def proxy_responses(request: Request):
 
     if stream:
         return StreamingResponse(
-            stream_generator(ds_payload, config.api_base, api_key, session_id),
+            stream_generator(ds_payload, config.api_base, api_key, session_id,
+                             http_client=request.app.state.http),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -97,19 +120,16 @@ async def proxy_responses(request: Request):
             },
         )
 
-    # Non-streaming
+    # Non-streaming: use shared connection pool
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0)
-        ) as client:
-            resp = await client.post(
-                f"{config.api_base}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=ds_payload,
-            )
+        resp = await request.app.state.http.post(
+            f"{config.api_base}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=ds_payload,
+        )
     except httpx.ConnectError as e:
         elapsed = int((time.time() - start) * 1000)
         log_response(model, elapsed, "upstream_unavailable")

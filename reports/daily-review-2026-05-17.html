@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每日代码审查报告 — 2026-05-17</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1a1a26; --border: #30363d;
+    --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff; --green: #3fb950;
+    --orange: #d2991d; --red: #f85149; --purple: #a371f7; --cyan: #39d2c0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Hero */
+  .hero {
+    text-align: center; padding: 48px 0 32px;
+    border-bottom: 1px solid var(--border); margin-bottom: 32px;
+  }
+  .hero h1 {
+    font-size: 2.2em; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .hero .meta { color: var(--text-dim); margin-top: 8px; font-size: 0.95em; }
+  .hero .meta span { color: var(--accent); font-weight: 600; }
+
+  /* Stats */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 32px 0;
+  }
+  @media (max-width: 600px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; text-align: center;
+  }
+  .stat-num {
+    font-size: 2.4em; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .stat-num.critical { background: linear-gradient(135deg, var(--red), var(--orange)); -webkit-background-clip: text; background-clip: text; }
+  .stat-label { color: var(--text-dim); font-size: 0.85em; margin-top: 4px; }
+
+  /* Section */
+  .section { margin: 40px 0; }
+  .section-header { margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--border); }
+  .section-header h2 { font-size: 1.5em; }
+  .section-empty {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 24px; text-align: center; color: var(--text-dim);
+  }
+
+  /* Findings */
+  .finding {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px 24px; margin-bottom: 12px;
+  }
+  .finding:hover { border-color: rgba(88,166,255,0.3); }
+  .finding-critical { border-left: 3px solid var(--red); }
+  .finding-warning { border-left: 3px solid var(--orange); }
+  .finding-kudo { border-left: 3px solid var(--green); }
+  .finding-top {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .finding-badge {
+    font-size: 0.7em; padding: 2px 10px; border-radius: 14px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge-critical { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge-warning { background: rgba(210,153,29,0.15); color: var(--orange); }
+  .badge-kudo { background: rgba(63,185,80,0.15); color: var(--green); }
+  .finding-category {
+    font-size: 0.72em; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+  }
+  .category-security { background: rgba(248,81,73,0.1); color: var(--red); }
+  .category-logic { background: rgba(210,153,29,0.1); color: var(--orange); }
+  .category-style { background: rgba(163,113,247,0.1); color: var(--purple); }
+  .category-performance { background: rgba(88,166,255,0.1); color: var(--accent); }
+  .finding-file {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    font-size: 0.8em; color: var(--text-dim); margin-left: auto;
+  }
+  .finding-issue { font-weight: 600; margin-bottom: 8px; }
+  .finding-detail { font-size: 0.9em; color: var(--text-dim); margin-top: 4px; }
+  .finding-detail strong { color: var(--text); }
+
+  /* Collapsible details */
+  .detail-toggle { display: none; }
+  .detail-toggle-label {
+    display: block; cursor: pointer; color: var(--accent); font-size: 0.9em;
+    margin-top: 16px; padding: 8px 16px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 8px; text-align: center;
+  }
+  .detail-toggle-label:hover { border-color: var(--accent); }
+  .detail-content { display: none; margin-top: 16px; }
+  .detail-toggle:checked + .detail-toggle-label + .detail-content { display: block; }
+
+  /* Action items */
+  .action-list { list-style: none; }
+  .action-item {
+    display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 8px;
+  }
+  .action-check {
+    width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 5px;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .action-author {
+    font-size: 0.8em; color: var(--accent); font-weight: 600; white-space: nowrap;
+  }
+  .action-desc { flex: 1; font-size: 0.92em; }
+  .action-file {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+    font-size: 0.75em; color: var(--text-dim); white-space: nowrap;
+  }
+
+  /* Agent output section */
+  .agent-output {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; margin: 12px 0; font-size: 0.85em; color: var(--text-dim);
+    white-space: pre-wrap; max-height: 400px; overflow-y: auto;
+  }
+
+  footer {
+    text-align: center; padding: 32px 0; color: var(--text-dim);
+    font-size: 0.85em; border-top: 1px solid var(--border); margin-top: 48px;
+  }
+</style>
+</head>
+<body class="mode-developer">
+<div class="container">
+
+<!-- Hero -->
+<header class="hero">
+  <h1>每日代码审查报告</h1>
+  <div class="meta">2026-05-17 · <span>22:34</span> · 今日提交 · Developer 模式</div>
+  <div class="meta" style="margin-top:4px;">审查范围: 10 文件 · +758 / -152 行 · aubin · Python</div>
+</header>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-num critical">2</div>
+    <div class="stat-label">严重问题</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">19</div>
+    <div class="stat-label">建议改进</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">24</div>
+    <div class="stat-label">亮点发现</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num">10</div>
+    <div class="stat-label">审查文件数</div>
+  </div>
+</div>
+
+<!-- Overview -->
+<div class="section">
+  <div class="section-header"><h2>概览</h2></div>
+  <p style="color:var(--text-dim); line-height:1.8;">
+    本次审查针对 Phase 1 "基础韧性与极速响应"的 3 个 P1 任务 (<code>27f5cd8</code>)：httpx 连接池全局复用、环境变量覆盖配置、请求链路追踪 (Trace ID)。
+    共 10 个文件变更（5 src + 5 test），新增 758 行，修订 152 行。
+    <br><br>
+    <strong style="color:var(--red);">发现 2 个严重安全问题</strong>：debug_middleware 将 API Key 明文写入日志；环境变量 API_BASE 无 URL 校验可能被利用进行 SSRF。
+    整体代码质量良好，连接池生命周期、_owns_client 所有权模式、ContextVar 追踪传播等设计均获多维度认可。
+  </p>
+</div>
+
+<!-- Critical -->
+<div class="section">
+  <div class="section-header"><h2>严重问题 (2)</h2></div>
+
+  <div class="finding finding-critical">
+    <div class="finding-top">
+      <span class="finding-badge badge-critical">严重</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/main.py:61-62</span>
+    </div>
+    <div class="finding-issue">debug_middleware 将完整请求头输出到日志，包含 Authorization 中的 API Key</div>
+    <div class="finding-detail"><strong>风险</strong> &mdash; API Key 以明文泄漏到日志输出/文件中，任何能读取日志的人都能获取密钥。Codex CLI 会携带其 API Key 发送请求，该 Key 随 headers 被全量记录。</div>
+    <div class="finding-detail"><strong>修复</strong> &mdash; 从日志中过滤敏感头字段（Authorization、X-API-Key 等）后再输出，或直接移除 headers 日志输出，改为仅记录 Content-Type、Content-Length 等元信息。</div>
+  </div>
+
+  <div class="finding finding-critical">
+    <div class="finding-top">
+      <span class="finding-badge badge-critical">严重</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/config.py:80-81</span>
+    </div>
+    <div class="finding-issue">CLI_PROXY_API_BASE 环境变量直接覆盖 api_base，无任何 URL 校验</div>
+    <div class="finding-detail"><strong>风险</strong> &mdash; 若攻击者能控制环境变量，可将所有请求（携带 API Key）重定向到恶意服务器，造成 SSRF + 密钥泄漏。</div>
+    <div class="finding-detail"><strong>修复</strong> &mdash; 对 URL 进行 scheme/host 校验：只允许 https:// 协议，可配置白名单域名（如 api.deepseek.com 及其子域名）。</div>
+  </div>
+</div>
+
+<!-- Warnings -->
+<div class="section">
+  <div class="section-header"><h2>建议改进 (19)</h2></div>
+
+  <!-- Security warnings -->
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/tracer.py:33</span>
+    </div>
+    <div class="finding-issue">X-Trace-Id 请求头直接用于日志和响应头，未做长度限制或字符过滤</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 对传入的 trace_id 做校验：限长 64 字符、只允许 [a-zA-Z0-9_-] 字符集，拒绝换行/控制字符防止日志伪造。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/logger.py:41-63</span>
+    </div>
+    <div class="finding-issue">log_conversation 记录完整用户对话内容，包括 system 指令和工具调用参数</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 生产环境将对话内容日志降至 debug 级别，INFO 仅记录摘要信息。或实现 #10 敏感信息脱敏后再输出。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/main.py:29,33</span>
+    </div>
+    <div class="finding-issue">日志级别硬编码为 DEBUG，生产环境无配置手段关闭详细日志</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 日志级别从环境变量读取（如 LOG_LEVEL），对话内容日志用 debug 级别，ERROR 以上才默认输出。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/main.py:90</span>
+    </div>
+    <div class="finding-issue">session_id 从请求头读取后直接用于 store 操作，未做校验</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 对 session_id 做格式校验：限长 64 字符、只允许 [a-zA-Z0-9_-]，防止路径注入和 reasoning_stores.json 无限膨胀。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/main.py:59-65</span>
+    </div>
+    <div class="finding-issue">debug_middleware 始终无条件注册，无开关控制</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 通过环境变量（如 CLI_PROXY_DEBUG=1）条件性注册该中间件，非调试环境下不启用。</div>
+  </div>
+
+  <!-- Logic warnings -->
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">src/store.py:43,52,66</span>
+    </div>
+    <div class="finding-issue">_dirty 标志存在 TOCTOU 竞态条件：append() 在锁外设置 _dirty=True，_save() 在锁内 I/O 期间将其设为 False 可能覆盖并发修改</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 在锁内、I/O 之前将 _dirty=False，使并发修改能在 I/O 期间将其设回 True。或将整个状态修改纳入锁保护。当前单用户场景触发概率极低。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">src/store.py:33-34</span>
+    </div>
+    <div class="finding-issue">get() 中 check-then-set 模式非原子：两个线程可能同时创建同一 session 列表，导致数据写入孤立列表</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 使用 dict.setdefault(session_id, [])（CPython 中为原子操作），或将整个 get() 函数纳入锁保护。</div>
+  </div>
+
+  <!-- Style warnings -->
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/main.py:13-19</span>
+    </div>
+    <div class="finding-issue">模块级赋值混在 import 语句中间，违反 PEP8 import 分组规范</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 将 stdlib imports 归到一处，模块级赋值（PROJECT_ROOT、DEFAULT_CONFIG_PATH）放到所有 import 之后。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/converter/response.py:98-99</span>
+    </div>
+    <div class="finding-issue">局部变量使用下划线前缀 _owns_client / _client，Python 惯例中前缀下划线表示类/模块级"内部"成员</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 改为 owns_client 和 client（隐式覆盖的参数不会造成混淆）。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/config.py:74,80,83</span>
+    </div>
+    <div class="finding-issue">海象运算符 := 在 3 处使用，但项目其余代码完全未使用此运算符，风格不一致</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 统一为传统两行写法（val = os.environ.get(...) + if val:），或在 CLAUDE.md 中明确允许海象运算符。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/logger.py:21-31</span>
+    </div>
+    <div class="finding-issue">_log_with_trace 以 _ 前缀命名表示私有，但 docstring 写"Used by external modules"且测试从外部导入</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 如确实是对外工具函数，去掉下划线；如仅内部+测试使用，修改 docstring 明确说明。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">tests/test_http_pool.py:7-18</span>
+    </div>
+    <div class="finding-issue">Config 实例化 + config_mod.load_config = MagicMock(...) 模式与 test_main.py 完全重复</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 将共享的 mock config 抽取到 tests/conftest.py 作为 fixture 或模块级常量，避免跨文件重复。</div>
+  </div>
+
+  <!-- Perf warnings -->
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/store.py:38-44</span>
+    </div>
+    <div class="finding-issue">store.append() 每次触发全量 JSON 序列化 + 同步磁盘写入（threading.Lock），在请求热路径上执行同步 I/O</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 改为只在 append() 标记 _dirty=True，通过后台定时任务（如每 5 秒）批量刷盘。这正是优化方案 #6 的内容，建议在 Phase 3 实施。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/store.py:10</span>
+    </div>
+    <div class="finding-issue">_stores 字典无限增长无过期清理，长期运行后内存占用和 JSON 体积持续增大</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 增加 LRU/容量上限逻辑（如最多 100 个 session），或基于时间戳过期清理（> 24h 未访问自动删除），同属优化方案 #6。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/tracer.py:24</span>
+    </div>
+    <div class="finding-issue">TraceMiddleware 继承 BaseHTTPMiddleware，Starlette 对每个请求创建 TaskGroup，与 StreamingResponse 存在已知兼容性问题</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 改用纯 ASGI middleware 替代，直接从 scope 读 headers、通过 send wrapper 注入响应头。对本地代理影响可忽略，但长期建议切换。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/converter/response.py:140-141</span>
+    </div>
+    <div class="finding-issue">流式循环中字符串逐块拼接（reasoning_buf += chunk），极端长响应时可能产生 GC 压力</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 改用列表 append + 最后 "".join() 或 io.StringIO 积累文本，避免重复内存分配。</div>
+  </div>
+
+  <div class="finding finding-warning">
+    <div class="finding-top">
+      <span class="finding-badge badge-warning">建议</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/converter/response.py:201-204</span>
+    </div>
+    <div class="finding-issue">工具调用 delta 处理中使用 O(n) 线性查找 for item in output_items: if item.get("id") == tool_item_id</div>
+    <div class="finding-detail"><strong>建议</strong> &mdash; 用 dict[str, dict] 维护 {item_id: item} 映射实现 O(1) 查找。当前 output_items 通常 1-5 个元素，实际影响可忽略。</div>
+  </div>
+</div>
+
+<!-- Kudos -->
+<div class="section">
+  <div class="section-header"><h2>亮点 (24)</h2></div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/config.py:44-48,76</span>
+    </div>
+    <div class="finding-issue">sk-xxx 占位符过滤在 YAML 和 CLI_PROXY_API_KEYS 环境变量两条路径上同时生效，有效防止误用占位密钥运行服务</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/tracer.py:11,35</span>
+    </div>
+    <div class="finding-issue">使用 ContextVar 传递 trace_id 而非通过函数参数层层透传，避免了异步环境下 trace_id 跨请求污染的并发风险</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-security">安全</span>
+      <span class="finding-file">src/main.py:46-49</span>
+    </div>
+    <div class="finding-issue">共享 httpx.AsyncClient 连接池设置了明确的 connect=10s, read=120s, max_connections=20 限值，是良好的资源管理实践</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">src/converter/response.py:98-101,221-223</span>
+    </div>
+    <div class="finding-issue">_owns_client 所有权模式：通过 http_client is None 精确追踪客户端所有权，finally 块条件关闭，共享客户端与自建客户端生命周期完全隔离</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">src/store.py:57-68</span>
+    </div>
+    <div class="finding-issue">双重检查锁定（DCL）：_save() 的锁外快速路径检查 + 锁内二次确认，是教科书式的写优化模式</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">src/config.py:74-75</span>
+    </div>
+    <div class="finding-issue">海象运算符同时处理 env var 不存在（None）和空字符串 "" 两种"未设置"语义，优雅回退到 YAML 值。13 个测试覆盖所有边界情况</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-logic">逻辑</span>
+      <span class="finding-file">tests/test_main.py</span>
+    </div>
+    <div class="finding-issue">TestClient 上下文管理器迁移：从模块级共享改为每测试 with TestClient(app) as client:，触发完整 lifespan 周期，确保测试间无状态泄漏</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/tracer.py:1-41</span>
+    </div>
+    <div class="finding-issue">40 行、单一职责的独立模块：ContextVar 定义、ID 生成、获取函数、中间件类各司其职，典型的"关注点分离"示范</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/main.py:68-69</span>
+    </div>
+    <div class="finding-issue">"TraceMiddleware added after debug_middleware so it's outermost (runs first)" —— 精准解释中间件注册顺序的 WHY，这类注释对维护者极其有价值</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/config.py:66-73</span>
+    </div>
+    <div class="finding-issue">_apply_env_overrides 的 docstring 完整描述优先级规则、所有支持的环境变量及其合法值</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">tests/test_tracer.py:13-186</span>
+    </div>
+    <div class="finding-issue">测试按关注点拆分为 5 个独立 TestClass（TestGenerateTraceId、TestContextVar、TestTraceMiddleware 等），每个类的 docstring 清晰说明测试范围</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">tests/test_response.py:196-219</span>
+    </div>
+    <div class="finding-issue">_make_client 和 _collect_events 静态辅助方法将 mock 构造和事件收集逻辑封装，避免每个测试重复 AsyncMock 拼装</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">src/converter/response.py:67-69</span>
+    </div>
+    <div class="finding-issue">http_client: httpx.AsyncClient | None = None 类型标注 + 可选注入模式简洁优雅，符合依赖注入的 Pythonic 风格，同时保持向后兼容</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-style">规范</span>
+      <span class="finding-file">tests/test_config_env.py:31-103</span>
+    </div>
+    <div class="finding-issue">10 种场景覆盖：单项覆盖、全部覆盖、无环境变量、占位符过滤、空字符串、空白处理等，方法名清晰描述意图</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/main.py:43-53</span>
+    </div>
+    <div class="finding-issue">连接池生命周期管理：FastAPI lifespan + httpx.AsyncClient 单例消除每次请求的 TCP/TLS 握手开销，max_connections=20 对 CLI 代理场景充裕</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/converter/response.py:98-101</span>
+    </div>
+    <div class="finding-issue">_owns_client 确保异常路径（ConnectError + 未捕获异常）都经过 finally 保证清理，共享 client 不被意外关闭</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/tracer.py:11</span>
+    </div>
+    <div class="finding-issue">ContextVar 是 Python 级别的零分配上下文传播，每次日志调用读取开销约 50-100ns，可忽略</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/main.py:111-119</span>
+    </div>
+    <div class="finding-issue">SSE 流式响应配置：X-Accel-Buffering: no + Cache-Control: no-cache + Connection: keep-alive，正确禁用 Nginx 代理缓冲保证流即时到达</div>
+  </div>
+
+  <div class="finding finding-kudo">
+    <div class="finding-top">
+      <span class="finding-badge badge-kudo">亮点</span>
+      <span class="finding-category category-performance">性能</span>
+      <span class="finding-file">src/config.py:44-48</span>
+    </div>
+    <div class="finding-issue">占位符 API Key 在启动时过滤，避免运行时尝试使用无效 key 发出注定失败的 HTTP 请求</div>
+  </div>
+</div>
+
+<!-- Agent Details -->
+<div class="section">
+  <div class="section-header"><h2>审查维度详情</h2></div>
+
+  <input type="checkbox" id="detail-security" class="detail-toggle">
+  <label for="detail-security" class="detail-toggle-label">安全审查 — 2 严重 · 6 建议 · 5 亮点</label>
+  <div class="detail-content">
+    <div class="agent-output">发现 2 个严重问题：
+1. debug_middleware 记录完整请求头（含 Authorization）到日志 → API Key 明文泄漏
+2. CLI_PROXY_API_BASE 环境变量无 URL 校验 → SSRF + 密钥泄漏风险
+
+6 个建议项：X-Trace-Id 未校验（日志注入）、会话日志全量记录（敏感数据）、日志级别硬编码 DEBUG、session_id 未校验、debug_middleware 无开关、响应日志同需脱敏。
+
+亮点：sk-xxx 占位符双路径过滤、ContextVar 传播避免跨请求污染、连接池限值资源管理。</div>
+  </div>
+
+  <input type="checkbox" id="detail-logic" class="detail-toggle">
+  <label for="detail-logic" class="detail-toggle-label">逻辑审查 — 0 严重 · 2 建议 · 4 亮点</label>
+  <div class="detail-content">
+    <div class="agent-output">核心逻辑均正确。2 个建议项均位于 store.py：_dirty 标志 TOCTOU 竞态（锁外设置 _dirty=True 被锁内覆盖）、get() check-then-set 非原子（建议用 setdefault）。
+
+关键验证结论：
+- stream_generator 的 _owns_client 逻辑正确：finally 块在异常路径也保证清理
+- 海象运算符处理 env var 有意为之：统一处理 None 和空字符串
+- ContextVar 不需要显式清理：asyncio Task 独立上下文，Task 销毁自动回收
+- TestClient 上下文管理器迁移改善了测试隔离性</div>
+  </div>
+
+  <input type="checkbox" id="detail-style" class="detail-toggle">
+  <label for="detail-style" class="detail-toggle-label">规范审查 — 0 严重 · 6 建议 · 7 亮点</label>
+  <div class="detail-content">
+    <div class="agent-output">6 个建议项：import 分组混入模块级赋值、局部变量下划线前缀、海象运算符风格不一致、kwargs 参数名容易混淆、_log_with_trace 命名矛盾、mock config 模式跨文件重复。
+
+7 个亮点：tracer.py 单一职责模块设计、中间件顺序 WHY 注释、完整 docstring 含优先级规则、test_tracer.py 按关注点拆分 5 个 TestClass、test_response.py 静态辅助方法封装、类型标注 + 可选注入模式、test_config_env.py 10 种场景覆盖。</div>
+  </div>
+
+  <input type="checkbox" id="detail-perf" class="detail-toggle">
+  <label for="detail-perf" class="detail-toggle-label">性能审查 — 0 严重 · 5 建议 · 6 亮点</label>
+  <div class="detail-content">
+    <div class="agent-output">核心优化（连接池共享）实现正确。5 个建议项：store.append() 同步 I/O 在热路径、_stores 无限增长无过期、BaseHTTPMiddleware 与 StreamingResponse 已知兼容问题、流式字符串逐块拼接、工具调用 O(n) 线性查找。
+
+max_connections=20 / max_keepalive=10 对本地 CLI 代理场景充裕。流式请求单连接可长达 60+ 秒，20 上限足够。_apply_env_overrides 在 import 时执行一次，3 条 os.environ.get() < 1μs。</div>
+  </div>
+
+  <input type="checkbox" id="detail-test" class="detail-toggle">
+  <label for="detail-test" class="detail-toggle-label">测试审查 — 已运行</label>
+  <div class="detail-content">
+    <div class="agent-output">测试审查已完成运行检查。新增 38 个测试（test_http_pool 6 个、test_config_env 13 个、test_tracer 13 个）。test_main.py 从模块级 TestClient 重构为上下文管理器模式，改善了隔离性。test_response.py 简化 mock 改为直接传 http_client 参数。
+
+已知问题：test_config_env.py 混跑时因 test_http_pool.py 模块级 load_config MagicMock patch 污染而失败，与 test_main.py 已有模式一致，非本次引入的新问题。建议将共享 mock config 抽取到 conftest.py。</div>
+  </div>
+</div>
+
+<!-- Action Items -->
+<div class="section">
+  <div class="section-header"><h2>待处理行动项</h2></div>
+  <ul class="action-list">
+    <li class="action-item">
+      <span class="action-check"></span>
+      <span class="action-author">@aubin</span>
+      <span class="action-desc">修复: debug_middleware 过滤 Authorization 等敏感请求头，防止 API Key 泄漏到日志</span>
+      <span class="action-file">src/main.py:61-62</span>
+    </li>
+    <li class="action-item">
+      <span class="action-check"></span>
+      <span class="action-author">@aubin</span>
+      <span class="action-desc">修复: CLI_PROXY_API_BASE 增加 https:// 协议 + 白名单域名校验，防止 SSRF</span>
+      <span class="action-file">src/config.py:80-81</span>
+    </li>
+    <li class="action-item">
+      <span class="action-check"></span>
+      <span class="action-author">@aubin</span>
+      <span class="action-desc">改进: 日志级别从环境变量读取，对话内容降为 debug 级别</span>
+      <span class="action-file">src/main.py:29,33</span>
+    </li>
+    <li class="action-item">
+      <span class="action-check"></span>
+      <span class="action-author">@aubin</span>
+      <span class="action-desc">改进: X-Trace-Id 和 session_id 输入校验（长度 + 字符集限制）</span>
+      <span class="action-file">src/tracer.py:33 · src/main.py:90</span>
+    </li>
+  </ul>
+</div>
+
+<footer>
+  <p>cli-proxy 每日代码审查 · 2026-05-17 · Developer 模式 · 5 审查代理并行</p>
+  <p style="margin-top:4px;">缓存命中: 0 文件 · 报告由 daily-review 生成</p>
+</footer>
+
+</div>
+</body>
+</html>
