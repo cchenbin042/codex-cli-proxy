@@ -42,6 +42,51 @@ curl http://localhost:8317/health
 pytest tests/ -v
 ```
 
+## Codex CLI 接入配置
+
+让 Codex CLI 通过 cli-proxy 代理访问 DeepSeek API：
+
+### 方式一：环境变量（推荐）
+
+```bash
+# 将 Codex CLI 的 API 地址指向本地代理
+export CODEX_API_BASE_URL="http://127.0.0.1:8317/v1"
+
+# 代理会忽略 API Key 内容（使用 config.yaml 中配置的 DeepSeek Key），
+# 但仍需设置一个非空值以通过 Codex CLI 校验
+export CODEX_API_KEY="sk-proxy"
+```
+
+### 方式二：Codex CLI 配置文件
+
+编辑 `~/.codex/config.toml`（或项目级 `.codex.toml`）：
+
+```toml
+[api]
+base_url = "http://127.0.0.1:8317/v1"
+api_key = "sk-proxy"
+
+[model]
+# 模型名会按 config.yaml 中的 model_map 映射到 DeepSeek 模型
+default = "gpt-5.5"
+```
+
+### 验证
+
+```bash
+# 1. 启动代理
+uvicorn src.main:app --host 0.0.0.0 --port 8317
+
+# 2. 验证代理健康状态
+curl http://localhost:8317/health
+# → {"status":"ok"}
+
+# 3. 使用 Codex CLI，观察代理日志输出
+codex "你好，请用 Python 写一个 hello world"
+```
+
+> **原理：** Codex CLI 将请求发到代理的 `/v1/responses`，代理转换为 DeepSeek Chat Completions 格式后向上游请求，再将响应转换回 Codex 兼容格式返回。
+
 ## 配置说明（config.yaml）
 
 ```yaml
