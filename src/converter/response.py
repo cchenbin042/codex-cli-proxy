@@ -65,7 +65,8 @@ def convert_nonstream(ds_resp: dict, session_id: str = "") -> dict:
 
 
 async def stream_generator(
-    ds_payload: dict, api_base: str, api_key: str, session_id: str = ""
+    ds_payload: dict, api_base: str, api_key: str, session_id: str = "",
+    http_client: httpx.AsyncClient | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream DeepSeek SSE chunks and yield Codex-formatted SSE events.
     State machine: init → text → (optional) tool_calls → completed
@@ -94,16 +95,19 @@ async def stream_generator(
         "type": "response.in_progress", "response_id": response_id,
     })
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0)) as client:
-        try:
-            async with client.stream(
-                "POST", f"{api_base}/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=ds_payload,
-            ) as response:
+    _owns_client = http_client is None
+    _client = http_client or httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0)
+    )
+    try:
+        async with _client.stream(
+            "POST", f"{api_base}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=ds_payload,
+        ) as response:
                 if response.status_code >= 400:
                     error_body = await response.aread()
                     error_text = error_body.decode("utf-8", errors="replace")[:500]
@@ -208,12 +212,15 @@ async def stream_generator(
                     if "usage" in chunk:
                         usage = chunk["usage"]
 
-        except httpx.ConnectError as e:
-            yield _sse_event("error", {
-                "type": "error",
-                "error": {"code": "upstream_unavailable", "message": str(e)},
-            })
-            return
+    except httpx.ConnectError as e:
+        yield _sse_event("error", {
+            "type": "error",
+            "error": {"code": "upstream_unavailable", "message": str(e)},
+        })
+        return
+    finally:
+        if _owns_client:
+            await _client.aclose()
 
     # Store reasoning_content on success
     store.append(session_id, reasoning_buf)

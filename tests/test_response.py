@@ -220,15 +220,12 @@ class TestStreamGenerator:
 
     @staticmethod
     async def _collect_events(ds_payload, mock_client):
-        """Run stream_generator with a patched httpx.AsyncClient, collect all SSE strings."""
-        from unittest.mock import patch
-
+        """Run stream_generator with a mock httpx client, collect all SSE strings."""
         events = []
-        with patch("src.converter.response.httpx.AsyncClient", return_value=mock_client):
-            async for event in stream_generator(
-                ds_payload, "https://api.test.com", "sk-test"
-            ):
-                events.append(event)
+        async for event in stream_generator(
+            ds_payload, "https://api.test.com", "sk-test", http_client=mock_client
+        ):
+            events.append(event)
         return events
 
     @staticmethod

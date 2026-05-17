@@ -2,7 +2,33 @@
 
 import logging
 
-_logger = logging.getLogger("cli-proxy")
+from src.tracer import get_trace_id
+
+
+class _TraceAdapter(logging.LoggerAdapter):
+    """LoggerAdapter that prepends [trace_id] to all log messages."""
+
+    def process(self, msg, kwargs):
+        trace_id = get_trace_id()
+        if trace_id:
+            return f"[{trace_id}] {msg}", kwargs
+        return msg, kwargs
+
+
+_logger = _TraceAdapter(logging.getLogger("cli-proxy"), {})
+
+
+def _log_with_trace(logger: logging.Logger, msg: str, *args, **kwargs) -> None:
+    """Log a message with the current trace_id prepended.
+
+    Used by external modules that have their own logger instance but want
+    trace_id in their output.
+    """
+    trace_id = get_trace_id()
+    if trace_id:
+        logger.info(f"[{trace_id}] {msg}", *args, **kwargs)
+    else:
+        logger.info(msg, *args, **kwargs)
 
 
 def log_request(model: str, msg_count: int, stream: bool) -> None:
