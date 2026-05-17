@@ -37,3 +37,9 @@ reasoning_stores.json
 
 # Code review cache (local optimization, never commit)
 .claude/code-review-cache.json
+
+# Generated docs and plans
+docs/
+
+# Tests (tracked via git, not ignored)
+# tests/
