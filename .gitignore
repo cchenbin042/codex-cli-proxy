@@ -46,3 +46,6 @@ tests/
 
 # Daily review reports
 reports/
+
+# Optimization proposals (brainstorm doc)
+optimization-proposals.html
