@@ -1,8 +1,33 @@
 """Structured logging for cli-proxy."""
 
+import re
 import logging
 
 from src.tracer import get_trace_id
+
+# Pre-compiled regex patterns for sanitization
+_SK_KEY_RE = re.compile(r'sk-[a-zA-Z0-9]{16,}')
+_BEARER_RE = re.compile(r'Bearer\s+[a-zA-Z0-9\-_\.]+')
+_API_KEY_JSON_RE = re.compile(r'("api_key"\s*:\s*)"[^"]*"')
+
+
+def sanitize_content(text: str | None, max_len: int = 200) -> str:
+    """Sanitize sensitive information from text and optionally truncate.
+
+    Masks:
+      - sk-[alphanum]{16,}  →  sk-***
+      - Bearer <token>      →  Bearer ***
+      - "api_key": "<val>"  →  "api_key":"***"
+    Truncates to max_len + "..." if content exceeds max_len.
+    """
+    if text is None:
+        return ""
+    result = _SK_KEY_RE.sub("sk-***", text)
+    result = _BEARER_RE.sub("Bearer ***", result)
+    result = _API_KEY_JSON_RE.sub(r'\1"***"', result)
+    if len(result) > max_len:
+        result = result[:max_len] + "..."
+    return result
 
 
 class _TraceAdapter(logging.LoggerAdapter):
@@ -39,10 +64,13 @@ def log_request(model: str, msg_count: int, stream: bool) -> None:
 
 
 def log_conversation(body: dict) -> None:
-    """Log a human-readable summary of the Codex conversation."""
+    """Log a human-readable summary of the Codex conversation with sanitization.
+
+    Uses DEBUG level to avoid logging user data at default INFO level.
+    """
     instructions = body.get("instructions") or ""
     if instructions:
-        _logger.info("System: %s", instructions[:200])
+        _logger.debug("System: %s", sanitize_content(instructions))
 
     for item in body.get("input", []):
         item_type = item.get("type")
@@ -54,13 +82,14 @@ def log_conversation(body: dict) -> None:
                 if isinstance(b, dict) and b.get("type") == "input_text"
             )
             if text:
-                _logger.info("  [%s] %s", role, text[:300])
+                _logger.debug("  [%s] %s", role, sanitize_content(text, max_len=300))
         elif item_type == "function_call":
-            _logger.info("  [tool_call] %s(%s)",
+            _logger.debug("  [tool_call] %s(%s)",
                          item.get("name", "?"),
-                         item.get("arguments", "")[:200])
+                         sanitize_content(item.get("arguments", "")))
         elif item_type == "function_call_output":
-            _logger.info("  [tool_result] %s", item.get("output", "")[:200])
+            _logger.debug("  [tool_result] %s",
+                         sanitize_content(item.get("output", "")))
 
 
 def log_response(model: str, elapsed_ms: int, status: str) -> None:
@@ -71,7 +100,7 @@ def log_response(model: str, elapsed_ms: int, status: str) -> None:
 
 
 def log_upstream_response(ds_resp: dict) -> None:
-    """Log DeepSeek API response summary."""
+    """Log DeepSeek API response summary with sanitization."""
     choices = ds_resp.get("choices", [])
     if choices:
         msg = choices[0].get("message", {})
@@ -79,14 +108,14 @@ def log_upstream_response(ds_resp: dict) -> None:
         reasoning = msg.get("reasoning_content") or ""
         tool_calls = msg.get("tool_calls") or []
         if reasoning:
-            _logger.info("DeepSeek -> reasoning: %s", reasoning[:200])
+            _logger.info("DeepSeek -> reasoning: %s", sanitize_content(reasoning))
         if content:
-            _logger.info("DeepSeek -> content: %s", content[:500])
+            _logger.info("DeepSeek -> content: %s", sanitize_content(content, max_len=500))
         for tc in tool_calls:
             tc_fn = tc.get("function", {})
             _logger.info("DeepSeek -> tool_call: %s(%s)",
                          tc_fn.get("name", "?"),
-                         tc_fn.get("arguments", "")[:300])
+                         sanitize_content(tc_fn.get("arguments", ""), max_len=300))
     usage = ds_resp.get("usage", {})
     if usage:
         _logger.info("DeepSeek -> usage: prompt=%d completion=%d total=%d reasoning=%d",

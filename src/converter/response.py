@@ -64,12 +64,39 @@ def convert_nonstream(ds_resp: dict, session_id: str = "") -> dict:
     }
 
 
+async def _direct_stream_lines(
+    ds_payload: dict, api_base: str, api_key: str, client: httpx.AsyncClient,
+) -> AsyncGenerator[str, None]:
+    """Legacy fallback: stream directly without provider abstraction."""
+    async with client.stream(
+        "POST", f"{api_base}/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=ds_payload,
+    ) as response:
+        if response.status_code >= 400:
+            error_body = await response.aread()
+            error_text = error_body.decode("utf-8", errors="replace")[:500]
+            _logger.error("Upstream %s error: %s", response.status_code, error_text)
+            yield f"data: {json.dumps({'type': 'error', 'error': {'code': f'upstream_{response.status_code}', 'message': error_text}})}"
+            return
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                yield line
+
+
 async def stream_generator(
-    ds_payload: dict, api_base: str, api_key: str, session_id: str = "",
+    ds_payload: dict, api_base: str = "", api_key: str = "", session_id: str = "",
     http_client: httpx.AsyncClient | None = None,
+    provider=None,
 ) -> AsyncGenerator[str, None]:
     """Stream DeepSeek SSE chunks and yield Codex-formatted SSE events.
     State machine: init → text → (optional) tool_calls → completed
+
+    If `provider` is given, uses provider.stream_chat_completions() for the
+    upstream call. Otherwise falls back to direct httpx streaming (legacy path).
     """
     response_id = _gen_id("resp_")
     msg_item_id = _gen_id("item_msg_")
@@ -100,117 +127,109 @@ async def stream_generator(
         timeout=httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0)
     )
     try:
-        async with _client.stream(
-            "POST", f"{api_base}/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=ds_payload,
-        ) as response:
-                if response.status_code >= 400:
-                    error_body = await response.aread()
-                    error_text = error_body.decode("utf-8", errors="replace")[:500]
-                    _logger.error("Upstream %s error: %s", response.status_code, error_text)
-                    yield _sse_event("error", {
-                        "type": "error",
-                        "error": {"code": f"upstream_{response.status_code}", "message": error_text},
+        if provider is not None:
+            _lines = provider.stream_chat_completions(ds_payload, _client)
+        else:
+            _lines = _direct_stream_lines(ds_payload, api_base, api_key, _client)
+
+        async for line in _lines:
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:]
+            if data_str.strip() == "[DONE]":
+                break
+
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                _logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
+                continue
+
+            # Handle error events from provider
+            if chunk.get("type") == "error":
+                yield _sse_event("error", chunk.get("error", {}))
+                return
+
+            choices = chunk.get("choices", [])
+            if not choices:
+                continue
+
+            delta = choices[0].get("delta", {})
+            reasoning_chunk = delta.get("reasoning_content") or ""
+            if reasoning_chunk:
+                reasoning_buf += reasoning_chunk
+
+            # Text handling
+            text = delta.get("content") or ""
+            if text and phase != "tool_calls":
+                if phase == "init":
+                    phase = "text"
+                    msg_item = {
+                        "id": msg_item_id, "type": "message",
+                        "role": "assistant", "status": "in_progress", "content": [],
+                    }
+                    output_items.append(msg_item)
+                    yield _sse_event("response.output_item.added", {
+                        "type": "response.output_item.added",
+                        "output_index": 0,
+                        "item": msg_item,
                     })
-                    return
+                    yield _sse_event("response.content_part.added", {
+                        "type": "response.content_part.added",
+                        "item_id": msg_item_id, "part_index": 0,
+                        "part": {"type": "output_text", "text": ""},
+                    })
+                text_buf += text
+                yield _sse_event("response.output_text.delta", {
+                    "type": "response.output_text.delta",
+                    "item_id": msg_item_id, "output_index": 0,
+                    "content_index": 0, "delta": text,
+                })
 
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:]
-                    if data_str.strip() == "[DONE]":
-                        break
+            # Tool calls handling
+            for tc in delta.get("tool_calls") or []:
+                if phase in ("init", "text"):
+                    phase = "tool_calls"
 
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        _logger.warning("Failed to parse SSE chunk: %s", data_str[:100])
-                        continue
-
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
-
-                    delta = choices[0].get("delta", {})
-                    reasoning_chunk = delta.get("reasoning_content") or ""
-                    if reasoning_chunk:
-                        reasoning_buf += reasoning_chunk
-
-                    # Text handling
-                    text = delta.get("content") or ""
-                    if text and phase != "tool_calls":
-                        if phase == "init":
-                            phase = "text"
-                            msg_item = {
-                                "id": msg_item_id, "type": "message",
-                                "role": "assistant", "status": "in_progress", "content": [],
-                            }
-                            output_items.append(msg_item)
-                            yield _sse_event("response.output_item.added", {
-                                "type": "response.output_item.added",
-                                "output_index": 0,
-                                "item": msg_item,
-                            })
-                            yield _sse_event("response.content_part.added", {
-                                "type": "response.content_part.added",
-                                "item_id": msg_item_id, "part_index": 0,
-                                "part": {"type": "output_text", "text": ""},
-                            })
-                        text_buf += text
-                        yield _sse_event("response.output_text.delta", {
-                            "type": "response.output_text.delta",
-                            "item_id": msg_item_id, "output_index": 0,
-                            "content_index": 0, "delta": text,
+                tc_type = tc.get("type")
+                if tc_type == "function":
+                    tool_item_id = tc.get("id", _gen_id("call_"))
+                    tool_output_idx = len(output_items)
+                    func_info = tc.get("function", {})
+                    tool_item = {
+                        "id": tool_item_id, "type": "function_call",
+                        "call_id": tool_item_id,
+                        "name": func_info.get("name", ""), "arguments": "",
+                    }
+                    output_items.append(tool_item)
+                    yield _sse_event("response.output_item.added", {
+                        "type": "response.output_item.added",
+                        "output_index": tool_output_idx,
+                        "item": tool_item,
+                    })
+                    if func_info.get("arguments"):
+                        output_items[tool_output_idx]["arguments"] += func_info["arguments"]
+                        yield _sse_event("response.function_call_arguments.delta", {
+                            "type": "response.function_call_arguments.delta",
+                            "item_id": tool_item_id, "output_index": tool_output_idx,
+                            "delta": func_info["arguments"],
+                        })
+                else:
+                    func = tc.get("function", {})
+                    if func.get("arguments") and tool_item_id:
+                        # Accumulate arguments in the matching output item
+                        for item in output_items:
+                            if item.get("id") == tool_item_id:
+                                item["arguments"] += func["arguments"]
+                                break
+                        yield _sse_event("response.function_call_arguments.delta", {
+                            "type": "response.function_call_arguments.delta",
+                            "item_id": tool_item_id, "output_index": tool_output_idx,
+                            "delta": func["arguments"],
                         })
 
-                    # Tool calls handling
-                    for tc in delta.get("tool_calls") or []:
-                        if phase in ("init", "text"):
-                            phase = "tool_calls"
-
-                        tc_type = tc.get("type")
-                        if tc_type == "function":
-                            tool_item_id = tc.get("id", _gen_id("call_"))
-                            tool_output_idx = len(output_items)
-                            func_info = tc.get("function", {})
-                            tool_item = {
-                                "id": tool_item_id, "type": "function_call",
-                                "call_id": tool_item_id,
-                                "name": func_info.get("name", ""), "arguments": "",
-                            }
-                            output_items.append(tool_item)
-                            yield _sse_event("response.output_item.added", {
-                                "type": "response.output_item.added",
-                                "output_index": tool_output_idx,
-                                "item": tool_item,
-                            })
-                            if func_info.get("arguments"):
-                                output_items[tool_output_idx]["arguments"] += func_info["arguments"]
-                                yield _sse_event("response.function_call_arguments.delta", {
-                                    "type": "response.function_call_arguments.delta",
-                                    "item_id": tool_item_id, "output_index": tool_output_idx,
-                                    "delta": func_info["arguments"],
-                                })
-                        else:
-                            func = tc.get("function", {})
-                            if func.get("arguments") and tool_item_id:
-                                # Accumulate arguments in the matching output item
-                                for item in output_items:
-                                    if item.get("id") == tool_item_id:
-                                        item["arguments"] += func["arguments"]
-                                        break
-                                yield _sse_event("response.function_call_arguments.delta", {
-                                    "type": "response.function_call_arguments.delta",
-                                    "item_id": tool_item_id, "output_index": tool_output_idx,
-                                    "delta": func["arguments"],
-                                })
-
-                    if "usage" in chunk:
-                        usage = chunk["usage"]
+            if "usage" in chunk:
+                usage = chunk["usage"]
 
     except httpx.ConnectError as e:
         yield _sse_event("error", {
@@ -225,14 +244,14 @@ async def stream_generator(
     # Store reasoning_content on success
     store.append(session_id, reasoning_buf)
 
-    # Log stream summary
+    # Log stream summary at DEBUG level (contains model output / tool parameters)
     if reasoning_buf:
-        _logger.info("DeepSeek -> reasoning: %s", reasoning_buf[:200])
+        _logger.debug("DeepSeek -> reasoning: %s", reasoning_buf[:200])
     if text_buf:
-        _logger.info("DeepSeek -> content: %s", text_buf[:500])
+        _logger.debug("DeepSeek -> content: %s", text_buf[:500])
     for item in output_items:
         if item["type"] == "function_call":
-            _logger.info("DeepSeek -> tool_call: %s(%s)",
+            _logger.debug("DeepSeek -> tool_call: %s(%s)",
                          item.get("name", "?"), item.get("arguments", "")[:300])
 
     # Finalize output items: emit content_part.done + output_item.done

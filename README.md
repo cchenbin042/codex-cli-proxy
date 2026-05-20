@@ -115,6 +115,79 @@ model_map:
 | `deepseek.thinking_disabled` | bool | 关闭 DeepSeek 思考模式（默认 false） |
 | `model_map` | dict | Codex 模型名 → DeepSeek 模型名映射 |
 
+### 可靠性配置
+
+```yaml
+reliability:
+  retry:
+    max_retries: 3               # 上游 5xx/连接错误最大重试次数
+    backoff_base: 2.0            # 指数退避基数（2^n + jitter 秒）
+  circuit_breaker:
+    failure_threshold: 5          # 连续失败 N 次触发熔断
+    cooldown_seconds: 30.0       # 熔断冷却时间（秒）
+  concurrency:
+    max_concurrent: 10            # 最大并发上游请求数
+    queue_timeout: 30.0           # 等待信号量的超时时间（秒）
+  rate_limit:
+    requests_per_minute: 30       # 单 IP 每分钟最大请求数
+    burst_size: 30                # 突发容量（令牌桶容量）
+```
+
+### 多供应商支持
+
+cli-proxy 支持接入多个 LLM 供应商，通过 `model_map` 的 `provider:model` 格式自动路由到对应平台。
+
+#### 已支持供应商
+
+| 供应商 | provider 名 | API 地址 | 说明 |
+|--------|------------|----------|------|
+| DeepSeek | `deepseek` | `https://api.deepseek.com` | 默认供应商 |
+| 通义千问 (DashScope) | `qwen` | `https://dashscope.aliyuncs.com/compatible-mode` | 阿里云 DashScope |
+| 百炼 | `bailian` | `https://dashscope.aliyuncs.com/compatible-mode` | 阿里云百炼平台 |
+| 硅基流动 | `siliconflow` | `https://api.siliconflow.cn` | SiliconFlow 平台 |
+| Moonshot (Kimi) | `moonshot` | `https://api.moonshot.cn` | 月之暗面 |
+
+#### 配置示例
+
+```yaml
+# 1. 在 providers 段配置各供应商的 API Key
+providers:
+  bailian:
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode"
+    api_keys:
+      - "sk-你的百炼Key"
+  siliconflow:
+    api_base: "https://api.siliconflow.cn"
+    api_keys:
+      - "sk-你的硅基流动Key"
+  qwen:
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode"
+    api_keys:
+      - "sk-你的通义千问Key"
+  moonshot:
+    api_base: "https://api.moonshot.cn"
+    api_keys:
+      - "sk-你的MoonshotKey"
+
+# 2. 在 model_map 中配置路由规则
+model_map:
+  # 默认模型走 DeepSeek
+  "gpt-5.5": "deepseek:deepseek-v4-pro"
+
+  # Qwen 系列走百炼平台
+  "qwen3-max": "bailian:qwen-max"
+  "qwen3-plus": "bailian:qwen-plus"
+
+  # DeepSeek 模型走硅基流动（热门模型镜像）
+  "deepseek-v3": "siliconflow:deepseek-ai/DeepSeek-V3"
+  "deepseek-r1": "siliconflow:deepseek-ai/DeepSeek-R1"
+
+  # Kimi 走 Moonshot
+  "kimi-latest": "moonshot:moonshot-v1-auto"
+```
+
+> **路由规则：** `model_map` 值不包含 `:` 时默认使用 DeepSeek 供应商。包含 `:` 时按 `provider:vendor_model` 解析，自动选用对应供应商的 API Key 和 Base URL。
+
 ## 请求转换规则
 
 ### 消息转换

@@ -146,17 +146,50 @@ def _convert_message(item: dict) -> dict:
 
     content_blocks = item.get("content")
     if content_blocks is None:
-        content = ""
-    else:
-        parts = []
-        for block in content_blocks:
-            if isinstance(block, dict) and block.get("type") == "input_text":
-                text = block.get("text", "")
-                if text:
-                    parts.append(text)
-        content = "\n".join(parts)
+        return {"role": role, "content": ""}
 
-    return {"role": role, "content": content}
+    # Convert each content block
+    parts = []
+    for block in content_blocks:
+        if not isinstance(block, dict):
+            continue
+        converted = _convert_content_block(block)
+        if converted is not None:
+            parts.append(converted)
+
+    if not parts:
+        return {"role": role, "content": ""}
+
+    # If only text parts, join them into a single string (backward compatible)
+    if all(p.get("type") == "text" for p in parts):
+        content = "\n".join(p["text"] for p in parts)
+        return {"role": role, "content": content}
+
+    # Mixed content (text + image): return as array
+    return {"role": role, "content": parts}
+
+
+def _convert_content_block(block: dict) -> dict | None:
+    """Convert a single Codex content block to OpenAI-compatible format.
+
+    Returns None for unrecognized block types (caller should skip).
+    """
+    btype = block.get("type")
+    if btype == "input_text":
+        return {"type": "text", "text": block.get("text", "")}
+    if btype == "input_image":
+        return {
+            "type": "image_url",
+            "image_url": {"url": block.get("image_url", "")},
+        }
+    if btype == "input_file":
+        # Extract text content from file block; file reference as context
+        text = block.get("text", "")
+        if text:
+            return {"type": "text", "text": text}
+        return None
+    _logger.warning("Unknown content block type '%s', skipping", btype)
+    return None
 
 
 def _convert_function_call(item: dict) -> dict:
