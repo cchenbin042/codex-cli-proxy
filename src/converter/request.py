@@ -175,7 +175,7 @@ def _convert_content_block(block: dict) -> dict | None:
     Returns None for unrecognized block types (caller should skip).
     """
     btype = block.get("type")
-    if btype == "input_text":
+    if btype in ("input_text", "output_text"):
         return {"type": "text", "text": block.get("text", "")}
     if btype == "input_image":
         return {
