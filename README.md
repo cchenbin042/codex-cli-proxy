@@ -7,64 +7,43 @@ Codex CLI/Desktop → 多 LLM 供应商 协议转换代理。将 OpenAI Response
 ### 请求处理流程
 
 ```mermaid
-flowchart TD
-    A["🔵 Codex CLI / Desktop"] -->|POST /v1/responses| B["TraceMiddleware<br/>trace_id 注入"]
-    B --> C["RateLimiter<br/>令牌桶限流"]
-    C --> D["CircuitBreaker<br/>熔断检测"]
-    D --> E["Semaphore<br/>并发控制"]
-    E --> F["request.py<br/>Responses → Chat Completions"]
-    F --> G{"model_map<br/>路由"}
-    G -->|deepseek| H1["DeepSeekProvider"]
-    G -->|qwen| H2["QwenProvider"]
-    G -->|moonshot| H3["MoonshotProvider"]
-    G -->|bailian| H4["BailianProvider"]
-    G -->|siliconflow| H5["SiliconFlowProvider"]
-    H1 & H2 & H3 & H4 & H5 --> I{"stream ?"}
-    I -->|是| J["stream_generator()<br/>SSE 逐块转换"]
-    I -->|否| K["Cache 查询"]
-    K -->|命中| L["直接返回"]
-    K -->|未命中| M["chat_completions()<br/>+ 指数退避重试"]
-    M --> N["response.py<br/>Chat Completions → Responses"]
-    J --> O["AuditWriter<br/>JSONL 审计日志"]
-    N --> O
-    L --> O
-    O --> P["🔵 Codex CLI / Desktop"]
+flowchart LR
+    A["Codex CLI"] -->|POST /v1/responses| B["main.py<br/>入口 + 中间件链"]
+    B --> C["可靠性层<br/>限流 → 熔断 → 并发控制"]
+    C --> D["request.py<br/>Responses → Chat"]
+    D --> E{"Provider<br/>路由"}
+    E --> F["DeepSeek / Qwen<br/>Moonshot / Bailian / ..."]
+    F --> G{"stream ?"}
+    G -->|stream| H["response.py<br/>SSE 逐块转换"]
+    G -->|non-stream| I["Cache 查询"]
+    I -->|命中| J["直接返回"]
+    I -->|未命中| F
+    H --> K["Audit / Logger"]
+    J --> K
+    K --> L["Codex CLI"]
 ```
 
 ### 模块分层
 
-```
-┌─────────────────────────────────────────────────┐
-│                   入口层                         │
-│  main.py     FastAPI 应用，中间件链，端点处理     │
-├─────────────────────────────────────────────────┤
-│                   转换层                         │
-│  converter/request.py    Responses → Chat        │
-│  converter/response.py   Chat → Responses (SSE)  │
-├─────────────────────────────────────────────────┤
-│                供应商适配层                       │
-│  providers/base.py       抽象基类 (Key 轮询)      │
-│  providers/deepseek.py   DeepSeek               │
-│  providers/qwen.py       通义千问 (DashScope)     │
-│  providers/bailian.py    百炼                    │
-│  providers/moonshot.py   Moonshot (Kimi)         │
-│  providers/siliconflow.py 硅基流动               │
-├─────────────────────────────────────────────────┤
-│                 可靠性层                         │
-│  circuit.py    熔断器 (连续失败 → 冷却 → 半开)    │
-│  ratelimit.py  令牌桶限流 (单 IP)                 │
-│  cache.py      LRU + TTL 响应缓存                │
-├─────────────────────────────────────────────────┤
-│                 可观测层                         │
-│  logger.py     双向日志 (请求/响应/会话摘要)       │
-│  audit.py      JSONL 日切审计日志                │
-│  tracer.py     trace_id 全链路追踪               │
-├─────────────────────────────────────────────────┤
-│                 状态层                           │
-│  store.py      reasoning_content 持久化 & 恢复    │
-│  config.py     YAML 配置 + 模型路由 + Key 管理    │
-└─────────────────────────────────────────────────┘
-```
+| 层 | 文件 | 职责 |
+|----|------|------|
+| **入口** | `main.py` | FastAPI 应用，lifespan 资源管理，中间件链编排 |
+| **转换** | `converter/request.py` | OpenAI Responses → Chat Completions 格式转换 |
+| | `converter/response.py` | Chat Completions → Responses 还原（SSE + JSON） |
+| **供应商** | `providers/base.py` | 抽象基类：OpenAI 兼容端点 + Key 轮询 |
+| | `providers/deepseek.py` | DeepSeek 适配器 |
+| | `providers/qwen.py` | 通义千问 (DashScope) 适配器 |
+| | `providers/bailian.py` | 阿里百炼适配器 |
+| | `providers/moonshot.py` | Moonshot (Kimi) 适配器 |
+| | `providers/siliconflow.py` | 硅基流动适配器 |
+| **可靠性** | `circuit.py` | 熔断器：连续失败 N 次 → 冷却 → 半开探测 |
+| | `ratelimit.py` | 令牌桶限流：按客户端 IP 控制 QPS |
+| | `cache.py` | LRU + TTL 响应缓存，`X-No-Cache` 头可绕过 |
+| **可观测** | `logger.py` | 双向日志：请求摘要 + 上游响应 + 下游还原 |
+| | `audit.py` | JSONL 日切审计日志，记录每次请求元数据 |
+| | `tracer.py` | `trace_id` 全链路追踪中间件 |
+| **状态** | `store.py` | `reasoning_content` 按 session 持久化与恢复 |
+| | `config.py` | YAML 配置加载：模型路由、Key 管理、思考开关 |
 
 ### 核心转换规则
 
