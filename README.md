@@ -1,27 +1,85 @@
 # codex-cli-proxy
 
-Codex CLI/Desktop → DeepSeek API 协议转换代理。将 OpenAI Responses API 请求转换为 DeepSeek Chat Completions API 格式，并反向转换响应。监听 8317 端口。
+Codex CLI/Desktop → 多 LLM 供应商 协议转换代理。将 OpenAI Responses API 请求转换为各供应商的 Chat Completions API 格式，并反向转换响应。监听 8317 端口。
 
 ## 架构
 
-```
-Codex CLI/Desktop → POST /v1/responses → request.py → DeepSeek /v1/chat/completions
-                                                 ↓
-Codex CLI/Desktop ← StreamingResponse/JSON ← response.py ←── DeepSeek SSE/JSON
-                                                 ↑
-                                            store.py（reasoning 持久化）
+### 请求处理流程
+
+```mermaid
+flowchart TD
+    A["🔵 Codex CLI / Desktop"] -->|POST /v1/responses| B["TraceMiddleware<br/>trace_id 注入"]
+    B --> C["RateLimiter<br/>令牌桶限流"]
+    C --> D["CircuitBreaker<br/>熔断检测"]
+    D --> E["Semaphore<br/>并发控制"]
+    E --> F["request.py<br/>Responses → Chat Completions"]
+    F --> G{"model_map<br/>路由"}
+    G -->|deepseek| H1["DeepSeekProvider"]
+    G -->|qwen| H2["QwenProvider"]
+    G -->|moonshot| H3["MoonshotProvider"]
+    G -->|bailian| H4["BailianProvider"]
+    G -->|siliconflow| H5["SiliconFlowProvider"]
+    H1 & H2 & H3 & H4 & H5 --> I{"stream ?"}
+    I -->|是| J["stream_generator()<br/>SSE 逐块转换"]
+    I -->|否| K["Cache 查询"]
+    K -->|命中| L["直接返回"]
+    K -->|未命中| M["chat_completions()<br/>+ 指数退避重试"]
+    M --> N["response.py<br/>Chat Completions → Responses"]
+    J --> O["AuditWriter<br/>JSONL 审计日志"]
+    N --> O
+    L --> O
+    O --> P["🔵 Codex CLI / Desktop"]
 ```
 
-四层模块，纯函数风格，通过 FastAPI 入口协调：
+### 模块分层
 
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| 入口 | `src/main.py` | FastAPI 应用，挂载 `/v1/responses` 和 `/health`，按 `session_id` 透传 |
-| 配置 | `src/config.py` | `Config` 数据类 + `load_config(path)`，含 Key 轮询、模型映射、思考开关 |
-| 请求转换 | `src/converter/request.py` | `convert_request(body, model_map, session_id, thinking_disabled)` |
-| 响应转换 | `src/converter/response.py` | `convert_nonstream(ds_resp, session_id)` + 异步生成器 `stream_generator(payload, api_base, api_key, session_id)` |
-| 状态持久化 | `src/store.py` | 按 `session_id` 索引的 reasoning_store，启动加载/追加写盘 |
-| 日志 | `src/logger.py` | 双向日志：用户对话摘要 + DeepSeek 响应 + Codex 转换结果 |
+```
+┌─────────────────────────────────────────────────┐
+│                   入口层                         │
+│  main.py     FastAPI 应用，中间件链，端点处理     │
+├─────────────────────────────────────────────────┤
+│                   转换层                         │
+│  converter/request.py    Responses → Chat        │
+│  converter/response.py   Chat → Responses (SSE)  │
+├─────────────────────────────────────────────────┤
+│                供应商适配层                       │
+│  providers/base.py       抽象基类 (Key 轮询)      │
+│  providers/deepseek.py   DeepSeek               │
+│  providers/qwen.py       通义千问 (DashScope)     │
+│  providers/bailian.py    百炼                    │
+│  providers/moonshot.py   Moonshot (Kimi)         │
+│  providers/siliconflow.py 硅基流动               │
+├─────────────────────────────────────────────────┤
+│                 可靠性层                         │
+│  circuit.py    熔断器 (连续失败 → 冷却 → 半开)    │
+│  ratelimit.py  令牌桶限流 (单 IP)                 │
+│  cache.py      LRU + TTL 响应缓存                │
+├─────────────────────────────────────────────────┤
+│                 可观测层                         │
+│  logger.py     双向日志 (请求/响应/会话摘要)       │
+│  audit.py      JSONL 日切审计日志                │
+│  tracer.py     trace_id 全链路追踪               │
+├─────────────────────────────────────────────────┤
+│                 状态层                           │
+│  store.py      reasoning_content 持久化 & 恢复    │
+│  config.py     YAML 配置 + 模型路由 + Key 管理    │
+└─────────────────────────────────────────────────┘
+```
+
+### 核心转换规则
+
+| Codex (Responses API) | → | 上游 (Chat Completions) |
+|-----------------------|---|-----------------------------|
+| `instructions` | → | `messages[0]` (role: system) |
+| `input[]` — `message` | → | 标准 `{"role":"...", "content":"..."}` |
+| `input[]` — `function_call` | → | 合并到上一条 assistant 的 `tool_calls[]` |
+| `input[]` — `function_call_output` | → | `{"role": "tool", "tool_call_id": "..."}` |
+| `input[]` — `reasoning` | → | 跳过 |
+| `input[]` — `developer` | → | 映射为 `role: system` |
+| `max_output_tokens` | → | `max_tokens` |
+| `tools` / `tool_choice` | → | 透传 (过滤非 function 工具) |
+| `temperature` / `stream` | → | 透传 |
+| — | ← | `thinking: {type: disabled}` (可配置) |
 
 ## 安装与运行
 
@@ -44,7 +102,7 @@ pytest tests/ -v
 
 ## Codex CLI 接入配置
 
-让 Codex CLI 通过 cli-proxy 代理访问 DeepSeek API：
+让 Codex CLI 通过 cli-proxy 代理访问上游 LLM API：
 
 ### 方式一：环境变量（推荐）
 
@@ -188,31 +246,7 @@ model_map:
 
 > **路由规则：** `model_map` 值不包含 `:` 时默认使用 DeepSeek 供应商。包含 `:` 时按 `provider:vendor_model` 解析，自动选用对应供应商的 API Key 和 Base URL。
 
-## 请求转换规则
-
-### 消息转换
-
-| Codex input type | DeepSeek message |
-|-----------------|-----------------|
-| `message` (user/assistant) | `{"role": "...", "content": "..."}` |
-| `message` (developer) | `{"role": "system", "content": "..."}` |
-| `function_call` | 合并到上一条 assistant 的 `tool_calls[]` 中 |
-| `function_call_output` | `{"role": "tool", "tool_call_id": "...", "content": "..."}` |
-| `reasoning` | 跳过 |
-
-同一轮连续的 `message(assistant)` + `function_call` 项合并为一条 DeepSeek assistant 消息，所有 tool_calls 聚合在一起。
-
-### 字段映射
-
-| Codex 字段 | DeepSeek 字段 | 处理 |
-|-----------|--------------|------|
-| `instructions` | `messages[0]` | 作为 system 角色 |
-| `model` | `model` | 查 model_map 替换，未匹配则透传 |
-| `tools` / `tool_choice` | 同名 | 过滤非 function 工具，扁平 tools 包装为嵌套格式 |
-| `temperature` / `stream` | 同名 | 直接透传 |
-| `max_output_tokens` | `max_tokens` | 重命名 |
-| `reasoning` | — | 丢弃 |
-| — | `thinking` | `thinking_disabled=true` 时注入 `{"type": "disabled"}` |
+## 请求转换补充说明
 
 ### reasoning_content 处理
 
@@ -223,7 +257,7 @@ model_map:
 
 ### 工具过滤
 
-DeepSeek 不支持 `web_search`、`code_interpreter` 等非 function 工具，proxy 自动过滤，仅保留 function 类型。
+非 function 类型工具（如 `web_search`、`code_interpreter`）不被上游 LLM 支持，proxy 自动过滤，仅保留 function 类型。
 
 ## 响应转换规则
 
