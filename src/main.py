@@ -123,6 +123,9 @@ async def lifespan(application: FastAPI):
     application.state.audit.close()
     _logger.info("AuditWriter closed")
 
+    store.flush()
+    _logger.info("Reasoning store flushed")
+
 
 app = FastAPI(title="cli-proxy", version="0.1.0", lifespan=lifespan)
 
@@ -335,6 +338,9 @@ async def proxy_responses(request: Request):
                             yield event
                         # Stream completed successfully
                         cb.record_success()
+                        _write_audit(request.app.state.audit, model, vendor_model,
+                                     msg_count, int((time.time() - start) * 1000),
+                                     "completed", stream=True)
                         return
                     except (httpx.ConnectError, httpx.ReadError) as e:
                         last_exception = e
@@ -348,10 +354,16 @@ async def proxy_responses(request: Request):
                         # Non-retryable error in stream
                         log_error(f"Stream failed: {e}")
                         cb.record_failure()
+                        _write_audit(request.app.state.audit, model, vendor_model,
+                                     msg_count, int((time.time() - start) * 1000),
+                                     "stream_error", stream=True)
                         return
 
                 # All retries exhausted
                 cb.record_failure()
+                _write_audit(request.app.state.audit, model, vendor_model,
+                             msg_count, int((time.time() - start) * 1000),
+                             "upstream_unavailable", stream=True)
                 yield f"event: error\ndata: {{\"type\":\"error\",\"error\":{{\"code\":\"upstream_unavailable\",\"message\":\"{str(last_exception)}\"}}}}\n\n"
             finally:
                 request.app.state.semaphore.release()
