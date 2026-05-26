@@ -143,6 +143,9 @@ function bindSettingsEvents() {
     });
   }
 
+  const trayMinEl = document.getElementById("setting-tray-minimize");
+  if (trayMinEl) trayMinEl.addEventListener("change", saveSettings);
+
   const startMinEl = document.getElementById("setting-start-minimized");
   if (startMinEl) startMinEl.addEventListener("change", saveSettings);
 
@@ -193,8 +196,8 @@ async function loadSettingsValues() {
       setChecked("setting-autolaunch", !!autoLaunch);
     }
 
-    setChecked("setting-tray-minimize", true);
-    setChecked("setting-start-minimized", false);
+    setChecked("setting-tray-minimize", localStorage.getItem("cli-proxy-tray-minimize") !== "0");
+    setChecked("setting-start-minimized", localStorage.getItem("cli-proxy-start-minimized") === "1");
 
     // Version
     let version = "1.0.0";
@@ -235,6 +238,8 @@ async function saveSettings() {
     if (themeEl) localStorage.setItem("cli-proxy-theme", themeEl.value);
     const langEl = document.getElementById("setting-lang");
     if (langEl) localStorage.setItem("cli-proxy-lang", langEl.value);
+    localStorage.setItem("cli-proxy-tray-minimize", document.getElementById("setting-tray-minimize")?.checked ? "1" : "0");
+    localStorage.setItem("cli-proxy-start-minimized", document.getElementById("setting-start-minimized")?.checked ? "1" : "0");
 
     await window.electronAPI.updateConfig(config);
   } catch (e) {

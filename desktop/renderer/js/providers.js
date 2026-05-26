@@ -85,7 +85,7 @@ function renderPresetModal() {
   const presetItems = Object.entries(PRESETS).map(function (entry) {
     const key = entry[0];
     const p = entry[1];
-    return '<div class="card preset-card mb-3" data-preset="' + key + '" style="cursor:pointer">' +
+    return '<div class="card preset-card mb-3" data-preset="' + key + '">' +
       '<strong>' + p.name + '</strong>' +
       '<div class="text-muted">' + escapeHtml(p.api_base) + '</div>' +
       '</div>';
@@ -264,6 +264,10 @@ function closeEditModal() {
 
 async function saveProvider() {
   const name = document.getElementById("edit-name").value.trim();
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+    alert("供应商名称仅允许字母、数字、下划线和连字符，长度 1-64");
+    return;
+  }
   const apiBase = document.getElementById("edit-api-base").value.trim();
   const apiKeys = document.getElementById("edit-api-keys").value.split("\n").map(function (k) { return k.trim(); }).filter(function (k) { return k; });
   const modelMapStr = document.getElementById("edit-model-map").value.trim();

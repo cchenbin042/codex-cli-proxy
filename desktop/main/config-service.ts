@@ -226,6 +226,10 @@ export class ConfigService {
    * for the Python process to consume.
    */
   writeRuntimeConfig(): string {
+    // WARNING: This method writes decrypted API keys to disk.
+    // Only use during backend process startup; caller MUST delete
+    // the temp file after the process reads it.
+    // Prefer getEnvForPython() which passes keys via environment variables.
     const config = this.load();
     const tmpPath = path.join(this.configDir, ".runtime-config.yaml");
 

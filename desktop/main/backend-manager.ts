@@ -424,7 +424,13 @@ export class BackendManager extends EventEmitter {
         { timeout: 2000 },
         (res) => {
           let body = "";
-          res.on("data", (chunk: Buffer) => (body += chunk.toString()));
+          res.on("data", (chunk: Buffer) => {
+            body += chunk.toString();
+            if (body.length > 4096) {
+              req.destroy();
+              resolve(false);
+            }
+          });
           res.on("end", () => {
             try {
               const json = JSON.parse(body);

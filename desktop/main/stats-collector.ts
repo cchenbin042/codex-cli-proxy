@@ -89,7 +89,8 @@ export class StatsCollector extends EventEmitter {
       files = fs.readdirSync(this.auditDir)
         .filter((f) => f.endsWith(".jsonl"))
         .sort();
-    } catch {
+    } catch (e) {
+            console.warn("[stats] Failed to parse audit line:", e);
       return;
     }
 
@@ -130,7 +131,8 @@ export class StatsCollector extends EventEmitter {
           try {
             const entry = JSON.parse(line);
             this.ingestEntry(daily, entry);
-          } catch {
+          } catch (e) {
+            console.warn("[stats] Failed to parse audit line:", e);
             // Skip malformed / partial lines
           }
         }
@@ -144,6 +146,14 @@ export class StatsCollector extends EventEmitter {
     }
 
     if (changed) {
+      // Prune dailyCache: keep only last 90 days
+      if (this.dailyCache.size > 90) {
+        const dates = Array.from(this.dailyCache.keys()).sort();
+        while (dates.length > 90) {
+          this.dailyCache.delete(dates.shift()!);
+        }
+      }
+
       this.emit("update", this.getSummary(), Array.from(this.dailyCache.values()));
     }
   }

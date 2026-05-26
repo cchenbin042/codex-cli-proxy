@@ -79,7 +79,7 @@ export function registerIpcHandlers(
   ipcMain.handle("providers:test", async (_event, provider: string, apiKey: string) => {
     try {
       const config = configService.load();
-      const pcfg = config.providers[provider];
+      const pcfg = config.providers?.[provider];
       const apiBase = pcfg?.api_base || config.deepseek.api_base;
 
       const startTime = Date.now();

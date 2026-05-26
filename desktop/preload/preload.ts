@@ -53,6 +53,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // ── Stats ──
   getStats: (): Promise<ProxyStats> =>
     ipcRenderer.invoke("stats:get"),
+ 
+  getStatsSummary: (): Promise<any> =>
+    ipcRenderer.invoke("stats:summary"),
 
   getDailyStats: (days: number): Promise<any[]> =>
     ipcRenderer.invoke("stats:daily", days),
