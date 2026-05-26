@@ -208,7 +208,9 @@ async function loadProvidersData() {
   }
   try {
     const config = await window.electronAPI.getConfig();
-    providers = { deepseek: config.deepseek || {}, };
+    providers = {
+      deepseek: Object.assign({}, config.deepseek, { model_map: config.model_map || {} }),
+    };
     if (config.providers) {
       Object.keys(config.providers).forEach(function (key) {
         providers[key] = config.providers[key];
@@ -288,6 +290,7 @@ async function saveProvider() {
     if (name === "deepseek") {
       config.deepseek.api_base = apiBase;
       config.deepseek.api_keys = apiKeys;
+      config.model_map = modelMap;
     } else {
       if (!config.providers) config.providers = {};
       config.providers[name] = {
