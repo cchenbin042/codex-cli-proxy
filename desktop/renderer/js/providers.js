@@ -275,7 +275,29 @@ async function saveProvider() {
   const modelMapStr = document.getElementById("edit-model-map").value.trim();
   let modelMap = {};
   if (modelMapStr) {
-    try { modelMap = JSON.parse(modelMapStr); } catch (e) { modelMap = {}; }
+    // Try JSON first: {"key": "value"}
+    try {
+      modelMap = JSON.parse(modelMapStr);
+    } catch (e) {
+      // Fallback: parse "key:value" pairs (YAML-style, one per line)
+      modelMap = {};
+      const lines = modelMapStr.split("\n");
+      let parseOk = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const idx = line.indexOf(":");
+        if (idx > 0) {
+          const k = line.substring(0, idx).trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+          const v = line.substring(idx + 1).trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+          if (k && v) { modelMap[k] = v; parseOk = true; }
+        }
+      }
+      if (!parseOk) {
+        alert("模型映射格式错误。请使用 JSON 格式（如 {"gpt-5.5": "deepseek-v4-pro"}）或每行 key: value 格式。");
+        return;
+      }
+    }
   }
 
   if (!name || !apiBase) {
