@@ -3,19 +3,33 @@ productName: cli-proxy
 copyright: Copyright © 2026 cli-proxy
 
 directories:
-  output: dist
-  buildResources: build
+  output: release
 
 extraResources:
   - from: ../src/
     to: backend/src
+    filter:
+      - "**/*.py"
+      - "!**/__pycache__/**"
+      - "!**/*.tsx"
+      - "!**/*.ts"
+      - "!**/vite-env.d.ts"
+      - "!**/components/**"
+      - "!**/hooks/**"
+      - "!**/lib/**"
   - from: ../config.yaml
     to: backend/config.yaml
+  - from: ../requirements.txt
+    to: backend/requirements.txt
 
 files:
-  - dist/**/*
+  - dist/main/**/*.js
+  - dist/preload/**/*.js
   - renderer/**/*
-  - "!renderer/assets/icon-*.png"
+  - package.json
+
+asar:
+  smartUnpack: false
 
 win:
   target:
