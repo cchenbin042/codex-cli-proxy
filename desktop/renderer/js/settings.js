@@ -352,5 +352,5 @@ function importConfig() {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("settings", renderSettings, function () { return isSettingsRendered; });
+  registerTab("settings", renderSettings, function () { return isSettingsRendered; });
 });

@@ -18,6 +18,31 @@ const state = {
 
 // ── Tab Navigation ─────────────────────────────────────────────────
 
+/** Registry of tab render functions: { tabId: { isRendered, render } } */
+const tabRenderers = {};
+
+/**
+ * Register a tab's render function. Called once by each tab module.
+ * @param {string} tabId
+ * @param {Function} renderFn - renders the tab content
+ * @param {Function} isRenderedFn - returns true if already rendered
+ */
+function registerTab(tabId, renderFn, isRenderedFn) {
+  tabRenderers[tabId] = { render: renderFn, isRendered: isRenderedFn };
+  // If this tab is already active, render immediately
+  if (state.activeTab === tabId) {
+    ensureTabRendered(tabId);
+  }
+}
+
+/** Call the render function for a tab if not already rendered */
+function ensureTabRendered(tabId) {
+  const entry = tabRenderers[tabId];
+  if (entry && !entry.isRendered()) {
+    entry.render();
+  }
+}
+
 function initTabNav() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -30,7 +55,12 @@ function initTabNav() {
       btn.classList.add("active");
 
       document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-      document.getElementById("tab-" + tab)?.classList.add("active");
+      const panel = document.getElementById("tab-" + tab);
+      if (panel) {
+        panel.classList.add("active");
+        // Render on first switch
+        ensureTabRendered(tab);
+      }
     });
   });
 }
@@ -189,23 +219,6 @@ function downloadFile(content, filename, mimeType) {
  * @param {Function} renderFn - The render function to call
  * @param {Function} isRenderedFn - Returns true if already rendered
  */
-function initLazyTab(tabId, renderFn, isRenderedFn) {
-  const tabPanel = document.getElementById("tab-" + tabId);
-  if (!tabPanel) return;
-
-  const observer = new MutationObserver(function () {
-    if (tabPanel.classList.contains("active") && !isRenderedFn()) {
-      renderFn();
-      observer.disconnect();
-    }
-  });
-  observer.observe(tabPanel, { attributes: true, attributeFilter: ["class"] });
-
-  if (tabPanel.classList.contains("active")) {
-    renderFn();
-  }
-}
-
 // ── Bootstrap ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {

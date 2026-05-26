@@ -412,7 +412,7 @@ async function testProvider(name) {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("providers", renderProviders, function () { return isProvidersRendered; });
+  registerTab("providers", renderProviders, function () { return isProvidersRendered; });
 
   // Reload providers when backend status changes (config may have been reloaded)
   window.addEventListener("backend:status", function () {

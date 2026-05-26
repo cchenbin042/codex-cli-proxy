@@ -255,5 +255,5 @@ async function loadAuditEntries(date) {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("logs", renderLogs, function () { return isLogRendered; });
+  registerTab("logs", renderLogs, function () { return isLogRendered; });
 });

@@ -264,5 +264,5 @@ window.addEventListener("stats:update", function (e) {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("dashboard", renderDashboard, function () { return isDashboardRendered; });
+  registerTab("dashboard", renderDashboard, function () { return isDashboardRendered; });
 });
