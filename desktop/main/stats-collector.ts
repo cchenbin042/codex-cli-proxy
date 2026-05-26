@@ -98,10 +98,16 @@ export class StatsCollector extends EventEmitter {
     for (const file of files) {
       const filePath = path.join(this.auditDir, file);
       const date = file.replace(".jsonl", "");
-      const prevOffset = this.fileOffsets.get(file) || 0;
+      let prevOffset = this.fileOffsets.get(file) || 0;
 
       try {
         const stat = fs.statSync(filePath);
+        // Detect truncation (log rotation): reset offset when file shrinks
+        if (stat.size < prevOffset) {
+          console.warn(`[stats] File ${file} appears truncated (size ${stat.size} < offset ${prevOffset}). Re-reading from start.`);
+          this.fileOffsets.set(file, 0);
+          prevOffset = 0;
+        }
         if (stat.size <= prevOffset) continue;
 
         // Read only the new bytes since last offset

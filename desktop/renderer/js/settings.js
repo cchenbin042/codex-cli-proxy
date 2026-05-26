@@ -14,7 +14,7 @@ let isSettingsRendered = false;
 
 // ── Render ─────────────────────────────────────────────────────────
 
-function renderSettingsPage() {
+function renderSettings() {
   const container = document.getElementById("tab-settings");
   if (!container) return;
 
@@ -300,13 +300,7 @@ async function exportConfig() {
       });
     }
     const json = JSON.stringify(safe, null, 2);
-    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "cli-proxy-config.json";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadFile(json, "cli-proxy-config.json", "application/json;charset=utf-8");
   } catch (e) {
     alert("导出失败: " + (e.message || "未知错误"));
   }
@@ -353,5 +347,5 @@ function importConfig() {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("settings", renderSettingsPage, function () { return isSettingsRendered; });
+  initLazyTab("settings", renderSettings, function () { return isSettingsRendered; });
 });

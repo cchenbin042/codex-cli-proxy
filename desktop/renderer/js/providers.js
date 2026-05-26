@@ -216,7 +216,13 @@ async function loadProvidersData() {
     }
   } catch (e) {
     console.error("[providers] Failed to load config:", e);
-    providers = {};
+    providers = {
+      deepseek: {
+        api_base: "https://api.deepseek.com",
+        api_keys: [],
+        model_map: {}
+      }
+    };
   }
 }
 

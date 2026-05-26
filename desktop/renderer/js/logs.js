@@ -21,7 +21,7 @@ let isLogRendered = false;
 
 // ── Render ─────────────────────────────────────────────────────────
 
-function renderLogsPage() {
+function renderLogs() {
   const container = document.getElementById("tab-logs");
   if (!container) return;
 
@@ -117,13 +117,7 @@ function bindLogEvents() {
       const text = logBuffer.map(function (l) {
         return "[" + (l.timestamp || "") + "] [" + (l.level || "") + "] " + (l.message || "");
       }).join("\n");
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "cli-proxy-logs.txt";
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadFile(text, "cli-proxy-logs.txt", "text/plain;charset=utf-8");
     });
   }
 
@@ -165,19 +159,12 @@ function refreshLogView() {
   viewer.innerHTML = visible.map(function (l) {
     return '<div class="log-line ' + (l.level || "INFO") + '">' +
       '<span class="text-muted">' + formatTime(l.timestamp) + '</span> ' +
-      escapeHtmlLog(l.message) +
+      escapeHtml(l.message) +
       '</div>';
   }).join("");
 
   // Auto-scroll to bottom
   viewer.scrollTop = viewer.scrollHeight;
-}
-
-function escapeHtmlLog(s) {
-  if (!s) return "";
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
 }
 
 // ── Log Entry Handler ──────────────────────────────────────────────
@@ -268,5 +255,5 @@ async function loadAuditEntries(date) {
 // ── Lazy Init ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
-  initLazyTab("logs", renderLogsPage, function () { return isLogRendered; });
+  initLazyTab("logs", renderLogs, function () { return isLogRendered; });
 });

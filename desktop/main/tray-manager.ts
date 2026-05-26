@@ -14,6 +14,7 @@ import { Tray, Menu, nativeImage, BrowserWindow, dialog, app } from "electron";
 import { BackendManager, BackendStatus } from "./backend-manager";
 import { AutoLaunchManager } from "./auto-launch";
 import { ConfigService } from "./config-service";
+import { DEFAULT_PROVIDER } from "./ipc-handlers";
 
 // ── Icon Generation ──────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ export class TrayManager {
     let providerLabel = "供应商: —";
     if (this.configService) {
       const config = this.configService.load();
-      const defaultProvider = config.model_map?.["__default__"] || "deepseek";
+      const defaultProvider = config.model_map?.["__default__"] || DEFAULT_PROVIDER;
       providerLabel = `供应商: ${defaultProvider} (主)`;
     }
 
@@ -211,15 +212,15 @@ export class TrayManager {
     if (this.configService) {
       const config = this.configService.load();
       // Collect all provider names from providers section + deepseek
-      const allProviders = new Set<string>(["deepseek"]);
+      const allProviders = new Set<string>([DEFAULT_PROVIDER]);
       for (const pname of Object.keys(config.providers || {})) {
         allProviders.add(pname);
       }
-      const defaultProvider = config.model_map?.["__default__"] || "deepseek";
+      const defaultProvider = config.model_map?.["__default__"] || DEFAULT_PROVIDER;
 
       for (const pname of allProviders) {
         providerItems.push({
-          label: pname === "deepseek" ? "DeepSeek (默认)" : pname,
+          label: pname === DEFAULT_PROVIDER ? "DeepSeek (默认)" : pname,
           type: "radio",
           checked: pname === defaultProvider,
           click: () => {
@@ -297,8 +298,7 @@ export class TrayManager {
         label: "退出",
         click: () => {
           this.isQuitting = true;
-          const { app: electronApp } = require("electron");
-          electronApp.quit();
+          app.quit();
         },
       },
     ]);

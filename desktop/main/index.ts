@@ -5,7 +5,7 @@ import { BackendManager } from "./backend-manager";
 import { TrayManager } from "./tray-manager";
 import { ConfigService } from "./config-service";
 import { AutoLaunchManager } from "./auto-launch";
-import { registerIpcHandlers, ingestLogForStats } from "./ipc-handlers";
+import { registerIpcHandlers } from "./ipc-handlers";
 import { initAutoUpdater } from "./updater";
 import { StatsCollector } from "./stats-collector";
 
@@ -118,10 +118,6 @@ function loadRenderer(win: BrowserWindow): void {
   }
 }
 
-// ── IPC Handlers ──────────────────────────────────────────────────
-
-// Registered via ipc-handlers.ts (called in app.whenReady below)
-
 // ── Crash / Error Dialogs ─────────────────────────────────────────
 
 function setupErrorHandlers(bm: BackendManager): void {
@@ -191,9 +187,6 @@ app.whenReady().then(async () => {
   });
 
   backend.on("stdout", (line: string) => {
-    // Ingest for legacy stats (still used by stats:get IPC)
-    ingestLogForStats(line);
-
     mainWindow?.webContents.send("log:entry", {
       timestamp: new Date().toISOString(),
       level: "INFO",

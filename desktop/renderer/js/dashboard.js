@@ -256,6 +256,9 @@ window.addEventListener("stats:update", function (e) {
   if (e.detail && e.detail.summary) {
     updateHeroCards(e.detail.summary);
   }
+  if (isDashboardRendered && currentDays) {
+    loadDashboardData(currentDays);
+  }
 });
 
 // ── Lazy Init ──────────────────────────────────────────────────────

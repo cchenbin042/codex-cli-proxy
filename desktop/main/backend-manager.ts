@@ -382,7 +382,10 @@ export class BackendManager extends EventEmitter {
               this.clearRuntimeHealthCheck();
               // Restart in background (don't await — the interval is fire-and-forget)
               this.restart().catch((e) => {
-                console.error(`[backend] Health-triggered restart failed: ${e.message}`);
+                console.error(`[backend] Health-triggered restart failed: ${e.message}. Entering error state.`);
+                this.setStatus("error");
+                this.clearRuntimeHealthCheck();
+                this.startRuntimeHealthCheck();
               });
             }
           }
@@ -395,7 +398,10 @@ export class BackendManager extends EventEmitter {
             console.error(`[backend] ${MAX_CONSECUTIVE_HEALTH_FAILURES} consecutive health errors. Triggering restart...`);
             this.clearRuntimeHealthCheck();
             this.restart().catch((e) => {
-              console.error(`[backend] Health-triggered restart failed: ${e.message}`);
+              console.error(`[backend] Health-triggered restart failed: ${e.message}. Entering error state.`);
+              this.setStatus("error");
+              this.clearRuntimeHealthCheck();
+              this.startRuntimeHealthCheck();
             });
           }
         });

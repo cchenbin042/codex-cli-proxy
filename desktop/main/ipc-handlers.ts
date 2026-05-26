@@ -16,60 +16,9 @@ import { AutoLaunchManager } from "./auto-launch";
 import { checkForUpdates, installUpdate } from "./updater";
 import { StatsCollector } from "./stats-collector";
 
-// ── Stats ────────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────
 
-interface ProxyStats {
-  totalRequests: number;
-  cacheHits: number;
-  errors: number;
-  lastRequestTime: string | null;
-  lastResponseTime: string | null;
-}
-
-const stats: ProxyStats = {
-  totalRequests: 0,
-  cacheHits: 0,
-  errors: 0,
-  lastRequestTime: null,
-  lastResponseTime: null,
-};
-
-export function getStats(): ProxyStats {
-  return { ...stats };
-}
-
-export function resetStats(): void {
-  stats.totalRequests = 0;
-  stats.cacheHits = 0;
-  stats.errors = 0;
-  stats.lastRequestTime = null;
-  stats.lastResponseTime = null;
-}
-
-/**
- * Increment stats from a parsed log entry emitted by BackendManager.
- * Wire this to backend.on('stdout') in the main process.
- */
-export function ingestLogForStats(line: string): void {
-  // "Request: model=..., messages=N, stream=true/false"
-  if (line.includes("Request: model=")) {
-    stats.totalRequests++;
-    stats.lastRequestTime = new Date().toISOString();
-  }
-  // "Response: model=..., elapsed=Nms, status=cache_hit"
-  if (line.includes("status=cache_hit")) {
-    stats.cacheHits++;
-  }
-  // "Response: model=..., elapsed=Nms, status=upstream_unavailable"
-  // "Response: model=..., elapsed=Nms, status=upstream_5xx"
-  if (line.includes("status=upstream_unavailable") || line.includes("status=upstream_5")) {
-    stats.errors++;
-  }
-  // Response completed
-  if (line.includes("Response: model=")) {
-    stats.lastResponseTime = new Date().toISOString();
-  }
-}
+export const DEFAULT_PROVIDER = "deepseek";
 
 // ── IPC Registration ─────────────────────────────────────────────
 
@@ -109,11 +58,6 @@ export function registerIpcHandlers(
     } catch (e: any) {
       return { success: false, error: e.message };
     }
-  });
-
-  // ── Stats ──
-  ipcMain.handle("stats:get", () => {
-    return getStats();
   });
 
   // ── Config ──

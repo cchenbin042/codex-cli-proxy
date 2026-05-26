@@ -140,6 +140,22 @@ export class ConfigService {
    * Triggers onConfigChanged after a 2s debounce.
    */
   save(config: AppConfig): void {
+    // ── Schema validation ──
+    if (typeof config.server?.port !== "number" || !Number.isInteger(config.server.port) || config.server.port < 1024 || config.server.port > 65535) {
+      throw new Error("Invalid config: server.port must be an integer between 1024 and 65535");
+    }
+    if (config.server?.host !== "0.0.0.0" && config.server?.host !== "127.0.0.1") {
+      throw new Error("Invalid config: server.host must be \"0.0.0.0\" or \"127.0.0.1\"");
+    }
+    if (typeof config.deepseek?.api_base !== "string" || !config.deepseek.api_base.startsWith("https://")) {
+      throw new Error("Invalid config: deepseek.api_base must start with \"https://\"");
+    }
+    for (const [name, pcfg] of Object.entries(config.providers || {})) {
+      if (typeof pcfg.api_base !== "string" || !pcfg.api_base.startsWith("https://")) {
+        throw new Error(`Invalid config: providers.${name}.api_base must start with "https://"`);
+      }
+    }
+
     // Sanitize keys in config (replace with "***") for YAML storage
     const sanitized = this.sanitizeKeys(config);
 
