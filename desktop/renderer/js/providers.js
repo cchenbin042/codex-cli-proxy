@@ -213,6 +213,7 @@ async function loadProvidersData() {
   }
   try {
     const config = await window.electronAPI.getConfig();
+    console.log("[providers] Config loaded:", config ? "OK" : "EMPTY", "deepseek:", !!config.deepseek, "providers:", Object.keys(config.providers || {}).length, "model_map:", Object.keys(config.model_map || {}).length);
     providers = {
       deepseek: Object.assign({}, config.deepseek, { model_map: config.model_map || {} }),
     };
