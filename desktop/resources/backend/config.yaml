@@ -1,0 +1,47 @@
+server:
+  host: "0.0.0.0"
+  port: 8317
+
+deepseek:
+  api_base: "https://api.deepseek.com"
+  api_keys:
+    - "sk-a4f3b94bd7e24fcf9d4eb33f1d194276"
+  # 关闭 DeepSeek 思考模式，加快响应速度（默认 false）
+  thinking_disabled: true
+
+reliability:
+  retry:
+    max_retries: 3
+    backoff_base: 2.0
+  circuit_breaker:
+    failure_threshold: 5
+    cooldown_seconds: 30.0
+  concurrency:
+    max_concurrent: 10
+    queue_timeout: 30.0
+  rate_limit:
+    requests_per_minute: 30
+    burst_size: 30
+
+model_map:
+  "gpt-5.5": "deepseek-v4-pro"
+  "gpt-5.4": "deepseek-v4-pro"
+  "gpt-5.4-mini": "deepseek-v4-pro"
+  "deepseek-v4-pro": "deepseek-v4-pro"
+  # 硅基流动模型
+  "glm-5.1": "siliconflow:Pro/zai-org/GLM-5.1"
+
+# 多供应商配置（可选，按需启用）
+# model_map 值格式 "provider:model" 将请求路由到对应供应商
+# 示例：将 "qwen3-max" 路由到百炼平台
+#   "qwen3-max": "bailian:qwen-max"
+#   "deepseek-v3": "siliconflow:deepseek-ai/DeepSeek-V3"
+providers:
+  bailian:
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode"
+    api_keys:
+      - "sk-xxx"
+  siliconflow:
+    api_base: "https://api.siliconflow.cn"
+    api_keys:
+      - "sk-vixtfoqugjjzvzhiydapwvfoxgadbcstzxpecupygtgnrmgt"

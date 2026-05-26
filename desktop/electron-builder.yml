@@ -1,0 +1,54 @@
+appId: com.cli-proxy.desktop
+productName: cli-proxy
+copyright: Copyright © 2026 cli-proxy
+
+directories:
+  output: dist
+  buildResources: build
+
+extraResources:
+  - from: ../src/
+    to: backend/src
+  - from: ../config.yaml
+    to: backend/config.yaml
+
+files:
+  - dist/**/*
+  - renderer/**/*
+  - "!renderer/assets/icon-*.png"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: renderer/assets/icon.png
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: renderer/assets/icon.png
+  category: public.app-category.developer-tools
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  icon: renderer/assets/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: cli-proxy
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: cchenbin042
+  repo: cli-proxy

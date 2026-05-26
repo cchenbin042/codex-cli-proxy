@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.js.map
+# electron-builder output
+out/
+release/
+# Generated icon (design source kept separately)
+renderer/assets/icon.png
