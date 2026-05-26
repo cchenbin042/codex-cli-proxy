@@ -30,6 +30,8 @@ let isProvidersRendered = false;
 function renderProviders() {
   const container = document.getElementById("tab-providers");
   if (!container) return;
+  // Show loading state immediately
+  container.innerHTML = '<p class="text-muted">加载中...</p>';
 
   loadProvidersData().then(function () {
     const entries = Object.entries(providers);
@@ -48,6 +50,9 @@ function renderProviders() {
     container.innerHTML = html;
     bindProviderEvents();
     isProvidersRendered = true;
+  }).catch(function (err) {
+    console.error("[providers] Render failed:", err);
+    container.innerHTML = '<p class="text-muted">加载失败: ' + (err.message || "未知错误") + '</p>';
   });
 }
 
