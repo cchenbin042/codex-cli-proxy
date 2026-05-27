@@ -3,14 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
   <title>cli-proxy</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
 <div id="app">
-  <!-- 顶部标题栏 -->
   <header id="titlebar">
     <div class="titlebar-brand">
       <span class="brand-dot" id="titlebar-dot"></span>
@@ -20,18 +19,17 @@
       <span id="titlebar-status-text">已停止</span>
       <span class="titlebar-sep">·</span>
       <span id="titlebar-port">端口 —</span>
+      <span id="debug-info" style="color:#f87171;margin-left:12px;font-size:10px"></span>
     </div>
   </header>
 
-  <!-- 内容区 -->
   <main id="content">
-    <section id="tab-dashboard" class="tab-panel active"></section>
-    <section id="tab-providers" class="tab-panel"></section>
-    <section id="tab-logs" class="tab-panel"></section>
-    <section id="tab-settings" class="tab-panel"></section>
+    <section id="tab-dashboard" class="tab-panel active"><p class="text-muted" id="fallback-dashboard">(仪表盘加载中...)</p></section>
+    <section id="tab-providers" class="tab-panel"><p class="text-muted" id="fallback-providers">(供应商加载中...)</p></section>
+    <section id="tab-logs" class="tab-panel"><p class="text-muted" id="fallback-logs">(日志加载中...)</p></section>
+    <section id="tab-settings" class="tab-panel"><p class="text-muted" id="fallback-settings">(设置加载中...)</p></section>
   </main>
 
-  <!-- 底部 Tab 导航 -->
   <nav id="bottom-nav">
     <button class="nav-btn active" data-tab="dashboard">
       <span class="nav-icon">📊</span>
@@ -51,6 +49,19 @@
     </button>
   </nav>
 </div>
+
+<!-- Debug: inline error capture before external scripts -->
+<script>
+// Capture script load errors and display in titlebar
+window._scriptErrors = [];
+window.addEventListener('error', function(e) {
+  if (e.target && e.target.tagName === 'SCRIPT') {
+    window._scriptErrors.push(e.target.src.split('/').pop());
+    var el = document.getElementById('debug-info');
+    if (el) el.textContent = 'JS FAIL: ' + window._scriptErrors.join(', ');
+  }
+}, true);
+</script>
 
 <script src="js/vendor/chart.umd.min.js"></script>
 <script src="js/app.js"></script>
