@@ -21,7 +21,9 @@ const PRESETS = {
 
 // ── State ──────────────────────────────────────────────────────────
 
-let providers = {};
+let providers = {
+  deepseek: { api_base: "https://api.deepseek.com", api_keys: [], model_map: {} }
+};
 const healthStatus = {}; // { providerName: { status: 'ok'|'warn'|'err', latency: number } }
 let isProvidersRendered = false;
 
@@ -30,29 +32,56 @@ let isProvidersRendered = false;
 function renderProviders() {
   const container = document.getElementById("tab-providers");
   if (!container) return;
-  // Show loading state immediately
-  container.innerHTML = '<p class="text-muted">加载中...</p>';
 
-  loadProvidersData().then(function () {
-    const entries = Object.entries(providers);
-    const html = '<div class="flex-between mb-3">' +
-      '<h2>供应商管理</h2>' +
-      '<button class="btn btn-primary" id="btn-add-provider">+ 添加供应商</button>' +
-      '</div>' +
-      '<div class="card-grid">' +
-      (entries.length > 0
-        ? entries.map(function (entry) { return renderCard(entry[0], entry[1]); }).join("")
-        : '<p class="text-muted">暂无供应商，点击"+ 添加供应商"开始配置</p>') +
-      '</div>' +
-      renderPresetModal() +
-      renderEditModal();
+  // Render immediately with whatever providers data is available
+  renderProvidersHTML();
 
-    container.innerHTML = html;
-    bindProviderEvents();
-    isProvidersRendered = true;
-  }).catch(function (err) {
-    console.error("[providers] Render failed:", err);
-    container.innerHTML = '<p class="text-muted">加载失败: ' + (err.message || "未知错误") + '</p>';
+  // Then refresh from config in background (non-blocking)
+  refreshProvidersFromConfig();
+}
+
+/** Render the current providers data into the container */
+function renderProvidersHTML() {
+  const container = document.getElementById("tab-providers");
+  if (!container) return;
+  const entries = Object.entries(providers);
+  const html = '<div class="flex-between mb-3">' +
+    '<h2>供应商管理</h2>' +
+    '<button class="btn btn-primary" id="btn-add-provider">+ 添加供应商</button>' +
+    '</div>' +
+    '<div class="card-grid">' +
+    (entries.length > 0
+      ? entries.map(function (entry) { return renderCard(entry[0], entry[1]); }).join("")
+      : '<p class="text-muted">暂无供应商，点击"+ 添加供应商"开始配置</p>') +
+    '</div>' +
+    renderPresetModal() +
+    renderEditModal();
+  container.innerHTML = html;
+  bindProviderEvents();
+  isProvidersRendered = true;
+}
+
+/** Fetch config from main process and update providers (non-blocking) */
+function refreshProvidersFromConfig() {
+  if (!window.electronAPI) return;
+
+  window.electronAPI.getConfig().then(function (config) {
+    console.log("[providers] Config loaded:", !!config, "deepseek:", !!config.deepseek, "model_map:", Object.keys(config.model_map || {}).length);
+    providers = {
+      deepseek: Object.assign({}, config.deepseek, { model_map: config.model_map || {} }),
+    };
+    if (config.providers) {
+      Object.keys(config.providers).forEach(function (key) {
+        providers[key] = config.providers[key];
+      });
+    }
+    // Re-render if providers tab is still active
+    if (document.getElementById("tab-providers")?.classList.contains("active")) {
+      renderProvidersHTML();
+    }
+  }).catch(function (e) {
+    console.error("[providers] Failed to load config:", e);
+    // Keep default providers, no need to re-render
   });
 }
 
@@ -199,39 +228,6 @@ function bindProviderEvents() {
       if (action === "copy-key") copyKey(name);
     });
   });
-}
-
-// ── Data Loading ───────────────────────────────────────────────────
-
-async function loadProvidersData() {
-  if (!window.electronAPI) {
-    // Fallback: use mock data
-    providers = {
-      deepseek: { api_base: "https://api.deepseek.com", api_keys: [], model_map: {} },
-    };
-    return;
-  }
-  try {
-    const config = await window.electronAPI.getConfig();
-    console.log("[providers] Config loaded:", config ? "OK" : "EMPTY", "deepseek:", !!config.deepseek, "providers:", Object.keys(config.providers || {}).length, "model_map:", Object.keys(config.model_map || {}).length);
-    providers = {
-      deepseek: Object.assign({}, config.deepseek, { model_map: config.model_map || {} }),
-    };
-    if (config.providers) {
-      Object.keys(config.providers).forEach(function (key) {
-        providers[key] = config.providers[key];
-      });
-    }
-  } catch (e) {
-    console.error("[providers] Failed to load config:", e);
-    providers = {
-      deepseek: {
-        api_base: "https://api.deepseek.com",
-        api_keys: [],
-        model_map: {}
-      }
-    };
-  }
 }
 
 // ── CRUD Operations ────────────────────────────────────────────────
