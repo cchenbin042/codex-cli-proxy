@@ -181,8 +181,13 @@ app.whenReady().then(async () => {
 
   // Initialize config service (reads ~/.cli-proxy/config.yaml + vault.bin)
   configService = new ConfigService(() => {
-    // Config changed → restart Python backend
-    console.log("[main] Config change detected. Restarting backend...");
+    // Config changed → refresh env vars, then restart Python backend
+    console.log("[main] Config change detected. Refreshing env vars and restarting backend...");
+    const pyEnv = configService!.getEnvForPython();
+    for (const [key, value] of Object.entries(pyEnv)) {
+      process.env[key] = value;
+      console.log(`[main] Env updated: ${key}=${value.substring(0, 12)}...`);
+    }
     backend?.restart().catch((e) => {
       console.error(`[main] Config-triggered restart failed: ${e.message}`);
     });

@@ -108,7 +108,8 @@ def load_config(path: str = "config.yaml") -> Config:
     api_keys = deepseek.get("api_keys", [])
 
     # Filter out placeholder keys — warn but don't exit (let UI handle)
-    valid_keys = [k for k in api_keys if k and k != "sk-xxx"]
+    PLACEHOLDER = frozenset({"sk-xxx", "***"})
+    valid_keys = [k for k in api_keys if k and k not in PLACEHOLDER]
     if not valid_keys:
         print(
             "[WARNING] No valid API key configured in config.yaml. "
@@ -145,7 +146,7 @@ def load_config(path: str = "config.yaml") -> Config:
     providers_data = data.get("providers", {})
     for pname, pdata in providers_data.items():
         pkeys = pdata.get("api_keys", [])
-        pvalid_keys = [k for k in pkeys if k and k != "sk-xxx"]
+        pvalid_keys = [k for k in pkeys if k and k not in PLACEHOLDER]
         if not pvalid_keys:
             continue
         providers[pname] = ProviderConfig(
@@ -182,7 +183,7 @@ def _apply_env_overrides(config: Config) -> Config:
     """
     if env_keys := os.environ.get("CLI_PROXY_API_KEYS"):
         api_keys = [k.strip() for k in env_keys.split(",") if k.strip()]
-        valid_keys = [k for k in api_keys if k and k != "sk-xxx"]
+        valid_keys = [k for k in api_keys if k and k != "sk-xxx" and k != "***"]
         if valid_keys:
             config.api_keys = valid_keys
 
