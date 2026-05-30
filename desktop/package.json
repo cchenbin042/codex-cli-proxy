@@ -1,7 +1,7 @@
 {
-  "name": "cli-proxy",
+  "name": "codex-proxy",
   "version": "1.0.0",
-  "description": "本地 API 代理桌面应用 — 将 Codex CLI 请求转换为多供应商 LLM API 格式",
+  "description": "Codex CLI 多模型代理 — 将 Codex CLI 请求转换为国产大模型 API 格式",
   "main": "dist/main/index.js",
   "repository": {
     "type": "git",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc && electron .",
+    "dev": "tsc && set VITE_DEV_SERVER_URL=http://localhost:1420 && electron .",
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
@@ -24,7 +24,7 @@
   "author": "cli-proxy",
   "license": "MIT",
   "dependencies": {
-    "electron-updater": "^6.3.0",
+    "electron-updater": "^6.8.3",
     "js-yaml": "^4.1.1"
   }
 }

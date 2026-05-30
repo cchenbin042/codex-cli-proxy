@@ -81,6 +81,11 @@ export class BackendManager extends EventEmitter {
     return this.port;
   }
 
+  /** Return the backend working directory (also where audit_logs/ lives). */
+  getBackendCwd(): string {
+    return this.backendCwd;
+  }
+
   getInfo(): BackendInfo {
     return {
       status: this.status,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, Menu, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { BackendManager } from "./backend-manager";
@@ -40,7 +40,11 @@ if (!gotLock) {
 // ── Path Detection ────────────────────────────────────────────────
 
 function getRendererPath(): string {
-  // From dist/main/ → go up 2 levels to desktop/ → renderer/index.html
+  // Dev mode: try Vite dev server first (when not packaged)
+  if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
+    return process.env.VITE_DEV_SERVER_URL;
+  }
+  // Production: Vite builds to desktop/renderer/
   const rendererHtml = path.join(__dirname, "..", "..", "renderer", "index.html");
   if (fs.existsSync(rendererHtml)) {
     return rendererHtml;
@@ -56,7 +60,7 @@ function createLoadingWindow(): BrowserWindow {
     height: 680,
     minWidth: 720,
     minHeight: 480,
-    title: "cli-proxy",
+    title: "codex-proxy",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/preload.js"),
@@ -106,8 +110,13 @@ function createLoadingWindow(): BrowserWindow {
 function loadRenderer(win: BrowserWindow): void {
   const rendererPath = getRendererPath();
   if (rendererPath) {
-    console.log(`[main] Loading renderer: ${rendererPath}`);
-    win.loadFile(rendererPath);
+    if (rendererPath.startsWith("http")) {
+      console.log(`[main] Loading renderer from dev server: ${rendererPath}`);
+      win.loadURL(rendererPath);
+    } else {
+      console.log(`[main] Loading renderer: ${rendererPath}`);
+      win.loadFile(rendererPath);
+    }
   } else {
     console.log("[main] Renderer not found, keeping loading page.");
   }
@@ -151,7 +160,8 @@ function setupErrorHandlers(bm: BackendManager): void {
 // ── App Lifecycle ─────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  console.log("[main] App ready. Starting backend...");
+  console.log("[main] App ready. Removing default menu...");
+  Menu.setApplicationMenu(null);
 
   // Create the loading window first
   mainWindow = createLoadingWindow();
@@ -172,8 +182,10 @@ app.whenReady().then(async () => {
   setupErrorHandlers(backend);
 
   // ── Initialize StatsCollector (incremental JSONL parsing) ──
-  const projectRoot = path.join(__dirname, "..", "..", "..");
-  const auditDir = path.join(projectRoot, "audit_logs");
+  // Use the same directory where Python writes audit_logs (backend CWD)
+  const backendCwd = backend.getBackendCwd();
+  const auditDir = path.join(backendCwd, "audit_logs");
+  console.log(`[main] StatsCollector auditDir: ${auditDir}`);
   statsCollector = new StatsCollector(auditDir, 30000);
   statsCollector.on("update", (summary, dailyStats) => {
     mainWindow?.webContents.send("stats:update", { summary, dailyStats });
@@ -209,7 +221,7 @@ app.whenReady().then(async () => {
   autoLaunch = new AutoLaunchManager();
 
   // Register IPC handlers (requires backend + configService + autoLaunch + statsCollector)
-  registerIpcHandlers(backend, configService, autoLaunch, statsCollector);
+  registerIpcHandlers(backend, configService, autoLaunch, statsCollector, auditDir);
 
   // ── Initialize system tray ──
   trayManager = new TrayManager(backend, mainWindow, autoLaunch, configService);

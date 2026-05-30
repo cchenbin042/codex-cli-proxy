@@ -6,7 +6,7 @@
  * Emits "update" events when new data is ingested so the renderer can stay live.
  */
 
-import * as fs from "fs";
+import { promises as fsPromises } from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 
@@ -22,6 +22,7 @@ export interface ProviderStats {
 export interface ModelStats {
   requests: number;
   tokens: number;
+  cacheHits: number;
 }
 
 export interface DailyStats {
@@ -41,7 +42,9 @@ export interface StatsSummary {
   promptTokens: number;
   completionTokens: number;
   cacheHitRate: number;
+  cacheHits: number;
   totalRequests: number;
+  totalErrors: number;
   healthyProviders: number;
   totalProviders: number;
   avgLatencyMs: number;
@@ -56,6 +59,9 @@ export class StatsCollector extends EventEmitter {
   private dailyCache: Map<string, DailyStats> = new Map();
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly intervalMs: number;
+  private scanning = false;
+  private cacheEntriesCache: { model: string; requests: number; tokens: number; cacheHits: number }[] | null = null;
+  private cacheDirty = true;
 
   constructor(auditDir: string, intervalMs = 30000) {
     super();
@@ -65,8 +71,8 @@ export class StatsCollector extends EventEmitter {
 
   // ── Lifecycle ───────────────────────────────────────────────────
 
-  start(): void {
-    fs.mkdirSync(this.auditDir, { recursive: true });
+  async start(): Promise<void> {
+    await fsPromises.mkdir(this.auditDir, { recursive: true });
     // Initial scan to pick up any existing data
     this.scan();
     this.timer = setInterval(() => this.scan(), this.intervalMs);
@@ -83,78 +89,84 @@ export class StatsCollector extends EventEmitter {
 
   // ── Scanning ────────────────────────────────────────────────────
 
-  private scan(): void {
-    let files: string[];
+  private async scan(): Promise<void> {
+    if (this.scanning) return;
+    this.scanning = true;
     try {
-      files = fs.readdirSync(this.auditDir)
-        .filter((f) => f.endsWith(".jsonl"))
-        .sort();
-    } catch (e) {
-            console.warn("[stats] Failed to parse audit line:", e);
-      return;
-    }
-
-    let changed = false;
-
-    for (const file of files) {
-      const filePath = path.join(this.auditDir, file);
-      const date = file.replace(".jsonl", "");
-      let prevOffset = this.fileOffsets.get(file) || 0;
-
+      let files: string[];
       try {
-        const stat = fs.statSync(filePath);
-        // Detect truncation (log rotation): reset offset when file shrinks
-        if (stat.size < prevOffset) {
-          console.warn(`[stats] File ${file} appears truncated (size ${stat.size} < offset ${prevOffset}). Re-reading from start.`);
-          this.fileOffsets.set(file, 0);
-          prevOffset = 0;
+        files = (await fsPromises.readdir(this.auditDir))
+          .filter((f) => f.endsWith(".jsonl"))
+          .sort();
+      } catch (e) {
+        console.warn("[stats] Failed to read audit dir:", e);
+        return;
+      }
+
+      let changed = false;
+
+      for (const file of files) {
+        const filePath = path.join(this.auditDir, file);
+        const date = file.replace(".jsonl", "");
+        let prevOffset = this.fileOffsets.get(file) || 0;
+
+        try {
+          const stat = await fsPromises.stat(filePath);
+          // Detect truncation (log rotation): reset offset when file shrinks
+          if (stat.size < prevOffset) {
+            console.warn(`[stats] File ${file} appears truncated (size ${stat.size} < offset ${prevOffset}). Re-reading from start.`);
+            this.fileOffsets.set(file, 0);
+            prevOffset = 0;
+          }
+          if (stat.size <= prevOffset) continue;
+
+          // Read only the new bytes since last offset
+          const bytesToRead = stat.size - prevOffset;
+          const fd = await fsPromises.open(filePath, "r");
+          const { buffer } = await fd.read(Buffer.alloc(bytesToRead), 0, bytesToRead, prevOffset);
+          await fd.close();
+
+          const newData = buffer.toString("utf-8");
+          const lines = newData.split("\n").filter((l) => l.trim());
+
+          // Get or create the daily accumulator
+          let daily = this.dailyCache.get(date);
+          if (!daily) {
+            daily = this.emptyDaily(date);
+          }
+
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+              this.ingestEntry(daily, entry);
+            } catch (e) {
+              console.warn("[stats] Failed to parse audit line:", e);
+              // Skip malformed / partial lines
+            }
+          }
+
+          this.dailyCache.set(date, daily);
+          this.fileOffsets.set(file, stat.size);
+          changed = true;
+        } catch {
+          // File may have been deleted or rotated — skip
         }
-        if (stat.size <= prevOffset) continue;
+      }
 
-        // Read only the new bytes since last offset
-        const bytesToRead = stat.size - prevOffset;
-        const fd = fs.openSync(filePath, "r");
-        const buf = Buffer.alloc(bytesToRead);
-        fs.readSync(fd, buf, 0, bytesToRead, prevOffset);
-        fs.closeSync(fd);
-
-        const newData = buf.toString("utf-8");
-        const lines = newData.split("\n").filter((l) => l.trim());
-
-        // Get or create the daily accumulator
-        let daily = this.dailyCache.get(date);
-        if (!daily) {
-          daily = this.emptyDaily(date);
-        }
-
-        for (const line of lines) {
-          try {
-            const entry = JSON.parse(line);
-            this.ingestEntry(daily, entry);
-          } catch (e) {
-            console.warn("[stats] Failed to parse audit line:", e);
-            // Skip malformed / partial lines
+      if (changed) {
+        // Prune dailyCache: keep only last 90 days
+        if (this.dailyCache.size > 90) {
+          const dates = Array.from(this.dailyCache.keys()).sort();
+          while (dates.length > 90) {
+            this.dailyCache.delete(dates.shift()!);
           }
         }
 
-        this.dailyCache.set(date, daily);
-        this.fileOffsets.set(file, stat.size);
-        changed = true;
-      } catch {
-        // File may have been deleted or rotated — skip
+        this.cacheDirty = true;
+        this.emit("update", this.getSummary(), Array.from(this.dailyCache.values()));
       }
-    }
-
-    if (changed) {
-      // Prune dailyCache: keep only last 90 days
-      if (this.dailyCache.size > 90) {
-        const dates = Array.from(this.dailyCache.keys()).sort();
-        while (dates.length > 90) {
-          this.dailyCache.delete(dates.shift()!);
-        }
-      }
-
-      this.emit("update", this.getSummary(), Array.from(this.dailyCache.values()));
+    } finally {
+      this.scanning = false;
     }
   }
 
@@ -203,10 +215,13 @@ export class StatsCollector extends EventEmitter {
     // Per-model aggregation
     const model = entry.vendor_model || entry.model || "unknown";
     if (!daily.byModel[model]) {
-      daily.byModel[model] = { requests: 0, tokens: 0 };
+      daily.byModel[model] = { requests: 0, tokens: 0, cacheHits: 0 };
     }
     daily.byModel[model].requests++;
     daily.byModel[model].tokens += promptTokens + completionTokens;
+    if (entry.status === "cache_hit") {
+      daily.byModel[model].cacheHits++;
+    }
   }
 
   // ── Factory ─────────────────────────────────────────────────────
@@ -261,7 +276,9 @@ export class StatsCollector extends EventEmitter {
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       cacheHitRate: totalRequests > 0 ? Math.round((totalCacheHits / totalRequests) * 100) : 0,
+      cacheHits: totalCacheHits,
       totalRequests,
+      totalErrors,
       healthyProviders: 0, // Health check requires active probing; set to 0 for now
       totalProviders: providerNames.size,
       avgLatencyMs: latencyCount > 0 ? Math.round(sumLatency / latencyCount) : 0,
@@ -279,5 +296,27 @@ export class StatsCollector extends EventEmitter {
       result.push(this.dailyCache.get(key) || this.emptyDaily(key));
     }
     return result;
+  }
+
+  /** Aggregate per-model cache stats from all loaded daily stats. */
+  getCacheEntries(): { model: string; requests: number; tokens: number; cacheHits: number }[] {
+    if (!this.cacheDirty && this.cacheEntriesCache) {
+      return this.cacheEntriesCache;
+    }
+    const map = new Map<string, { requests: number; tokens: number; cacheHits: number }>();
+    for (const daily of this.dailyCache.values()) {
+      for (const [model, ms] of Object.entries(daily.byModel)) {
+        const cur = map.get(model) || { requests: 0, tokens: 0, cacheHits: 0 };
+        cur.requests += ms.requests;
+        cur.tokens += ms.tokens;
+        cur.cacheHits += ms.cacheHits;
+        map.set(model, cur);
+      }
+    }
+    this.cacheEntriesCache = Array.from(map.entries())
+      .map(([model, v]) => ({ model, ...v }))
+      .sort((a, b) => b.requests - a.requests);
+    this.cacheDirty = false;
+    return this.cacheEntriesCache;
   }
 }

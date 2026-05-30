@@ -31,6 +31,7 @@ interface ProxyStats {
 contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
   version: "1.0.0",
+  getVersion: (): string => "1.0.0",
 
   // ── Backend lifecycle ──
   startProxy: (): Promise<{ success: boolean; error?: string }> =>
@@ -59,6 +60,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   getDailyStats: (days: number): Promise<any[]> =>
     ipcRenderer.invoke("stats:daily", days),
+
+  // ── Cache ──
+  getCacheEntries: (): Promise<any[]> =>
+    ipcRenderer.invoke("cache:entries"),
+
+  clearCache: (): Promise<{ success: boolean; data?: any; error?: string }> =>
+    ipcRenderer.invoke("cache:clear"),
+
+  setCacheTtl: (ttl: number): Promise<{ success: boolean; data?: any; error?: string }> =>
+    ipcRenderer.invoke("cache:ttl", ttl),
+
+  getCacheStatus: (): Promise<{ success: boolean; data?: any; error?: string }> =>
+    ipcRenderer.invoke("cache:status"),
 
   // ── Config (Phase 3) ──
   getConfig: (): Promise<any> =>

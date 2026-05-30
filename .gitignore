@@ -36,17 +36,39 @@ audit_logs/
 # Reasoning persistence (session data, should not be shared)
 reasoning_stores.json
 
-# Code review cache (local optimization, never commit)
-.claude/code-review-cache.json
+# Node
+node_modules/
+
+# Rust
+proxy/target/
+
+# Electron build output
+desktop/release/
+desktop/dist/
+
+# Vite build artifacts (generated JS/CSS with hashed names)
+desktop/renderer/assets/index-*.js
+desktop/renderer/assets/index-*.css
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Package lock (root — workspace-level)
+package-lock.json
+
+# Code review cache + reports
+.claude/
+reports/
 
 # Generated docs and plans
 docs/
 
+# Design spec (reference only)
+design-spec.html
+
 # Tests
 tests/
-
-# Daily review reports
-reports/
 
 # Optimization proposals (brainstorm doc)
 optimization-proposals.html

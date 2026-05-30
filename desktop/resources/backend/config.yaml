@@ -5,7 +5,7 @@ server:
 deepseek:
   api_base: "https://api.deepseek.com"
   api_keys:
-    - "sk-a4f3b94bd7e24fcf9d4eb33f1d194276"
+    - "sk-xxx"
   # 关闭 DeepSeek 思考模式，加快响应速度（默认 false）
   thinking_disabled: true
 
@@ -44,4 +44,4 @@ providers:
   siliconflow:
     api_base: "https://api.siliconflow.cn"
     api_keys:
-      - "sk-vixtfoqugjjzvzhiydapwvfoxgadbcstzxpecupygtgnrmgt"
+      - "sk-xxx"

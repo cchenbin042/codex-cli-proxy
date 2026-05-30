@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import logging
@@ -488,6 +488,34 @@ async def proxy_responses(request: Request):
                  msg_count, elapsed, "completed", stream=False)
     request.app.state.semaphore.release()
     return codex_resp
+
+
+@app.post("/cache/clear")
+async def cache_clear(request: Request):
+    """Clear all cached non-streaming responses."""
+    cache: ResponseCache = request.app.state.cache
+    count = len(cache) if cache else 0
+    if cache:
+        cache.clear()
+    return {"success": True, "cleared": count}
+
+
+@app.post("/cache/ttl")
+async def cache_ttl(request: Request):
+    """Update the cache TTL (in seconds, 1-86400)."""
+    body = await request.json()
+    ttl = body.get("ttl")
+    if not isinstance(ttl, (int, float)) or ttl < 1 or ttl > 86400:
+        raise HTTPException(status_code=400, detail="ttl must be 1-86400")
+    request.app.state.cache.ttl = float(ttl)
+    return {"success": True, "ttl": ttl}
+
+
+@app.get("/cache/status")
+async def cache_status(request: Request):
+    """Get current cache state: entry count, max size, TTL."""
+    cache: ResponseCache = request.app.state.cache
+    return {"entries": len(cache), "max_size": cache.max_size, "ttl_seconds": cache.ttl}
 
 
 @app.get("/health")

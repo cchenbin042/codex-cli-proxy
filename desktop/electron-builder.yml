@@ -1,6 +1,6 @@
-appId: com.cli-proxy.desktop
-productName: cli-proxy
-copyright: Copyright © 2026 cli-proxy
+appId: com.codex-proxy.desktop
+productName: codex-proxy
+copyright: Copyright © 2026 codex-proxy
 
 directories:
   output: release
@@ -35,13 +35,13 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  icon: renderer/assets/icon.png
+  icon: renderer/assets/cli-proxy-icon.png
 
 mac:
   target:
     - target: dmg
       arch: [x64, arm64]
-  icon: renderer/assets/icon.png
+  icon: renderer/assets/cli-proxy-icon.png
   category: public.app-category.developer-tools
 
 linux:
@@ -51,7 +51,7 @@ linux:
     - target: deb
       arch: [x64]
   category: Development
-  icon: renderer/assets/icon.png
+  icon: renderer/assets/cli-proxy-icon.png
 
 nsis:
   oneClick: false
@@ -59,7 +59,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: cli-proxy
+  shortcutName: codex-proxy
   deleteAppDataOnUninstall: false
 
 publish:

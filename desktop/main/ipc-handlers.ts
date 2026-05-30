@@ -27,6 +27,7 @@ export function registerIpcHandlers(
   configService: ConfigService,
   autoLaunch?: AutoLaunchManager,
   statsCollector?: StatsCollector,
+  auditDir?: string,
 ): void {
   // ── Backend lifecycle ──
   ipcMain.handle("backend:status", () => {
@@ -129,18 +130,25 @@ export function registerIpcHandlers(
     ipcMain.handle("stats:daily", (_event, days: number) => {
       return statsCollector.getDailyStats(days || 7);
     });
+
+    ipcMain.handle("stats:get", () => {
+      return statsCollector.getSummary();
+    });
+
+    ipcMain.handle("cache:entries", () => {
+      return statsCollector.getCacheEntries();
+    });
   }
 
   // ── Audit Logs ──
-  const projectRoot = path.join(__dirname, "..", "..", "..");
-  const auditDir = path.join(projectRoot, "audit_logs");
+  const auditLogDir = auditDir || path.join(path.join(__dirname, "..", "..", ".."), "audit_logs");
 
   ipcMain.handle("logs:audit", async (_event, date: string) => {
     // Validate date format: only allow YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
-    const filePath = path.resolve(auditDir, `${date}.jsonl`);
-    // Prevent path traversal: ensure resolved path is still within auditDir
-    if (!filePath.startsWith(path.resolve(auditDir))) return [];
+    const filePath = path.resolve(auditLogDir, `${date}.jsonl`);
+    // Prevent path traversal: ensure resolved path is still within auditLogDir
+    if (!filePath.startsWith(path.resolve(auditLogDir))) return [];
     try {
       if (!fs.existsSync(filePath)) return [];
       const content = fs.readFileSync(filePath, "utf-8");
@@ -158,8 +166,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle("logs:audit-dates", async () => {
     try {
-      if (!fs.existsSync(auditDir)) return [];
-      return fs.readdirSync(auditDir)
+      if (!fs.existsSync(auditLogDir)) return [];
+      return fs.readdirSync(auditLogDir)
         .filter((f) => f.endsWith(".jsonl"))
         .map((f) => f.replace(".jsonl", ""))
         .sort()
@@ -167,6 +175,31 @@ export function registerIpcHandlers(
     } catch {
       return [];
     }
+  });
+
+  // ── Cache Management (via Python backend) ──
+  ipcMain.handle("cache:clear", async () => {
+    const info = backend.getInfo();
+    if (info.status !== "running") {
+      return { success: false, error: "Backend is not running" };
+    }
+    return httpRequest("POST", `http://localhost:${info.port}/cache/clear`);
+  });
+
+  ipcMain.handle("cache:ttl", async (_event, ttl: number) => {
+    const info = backend.getInfo();
+    if (info.status !== "running") {
+      return { success: false, error: "Backend is not running" };
+    }
+    return httpRequest("POST", `http://localhost:${info.port}/cache/ttl`, { ttl });
+  });
+
+  ipcMain.handle("cache:status", async () => {
+    const info = backend.getInfo();
+    if (info.status !== "running") {
+      return { success: false, error: "Backend is not running" };
+    }
+    return httpRequest("GET", `http://localhost:${info.port}/cache/status`);
   });
 }
 
@@ -220,6 +253,51 @@ async function testProviderConnectivity(
       resolve({ success: false, error: "连接超时 (10s)" });
     });
 
+    req.end();
+  });
+}
+
+// ── HTTP Request Helper ───────────────────────────────────────────
+
+function httpRequest(
+  method: string,
+  url: string,
+  body?: any,
+): Promise<any> {
+  return new Promise((resolve) => {
+    const parsed = new URL(url);
+    const req = http.request(
+      parsed,
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        timeout: 5000,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => (data += chunk.toString()));
+        res.on("end", () => {
+          try {
+            resolve({ success: true, data: JSON.parse(data) });
+          } catch {
+            resolve({ success: false, error: `Invalid response: ${data}` });
+          }
+        });
+      },
+    );
+
+    req.on("error", (err: any) => {
+      resolve({ success: false, error: err.message });
+    });
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ success: false, error: "Request timed out" });
+    });
+
+    if (body) {
+      req.write(JSON.stringify(body));
+    }
     req.end();
   });
 }
