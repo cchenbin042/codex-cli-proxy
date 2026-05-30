@@ -55,6 +55,7 @@ export class BackendManager extends EventEmitter {
   // Startup health check
   private startupHealthTimer: ReturnType<typeof setTimeout> | null = null;
   private startupHealthStart: number = 0;
+  private startupReject: ((reason: Error) => void) | null = null;
 
   // Runtime health check
   private runtimeHealthTimer: ReturnType<typeof setInterval> | null = null;
@@ -215,6 +216,10 @@ export class BackendManager extends EventEmitter {
             console.error(`[backend] Max crash retries (${this.maxCrashRetries}) exceeded during startup.`);
             this.setStatus("error");
             this.emit("crash-exhausted");
+            if (this.startupReject) {
+              this.startupReject(new Error("Backend crash retries exhausted during startup"));
+              this.startupReject = null;
+            }
           }
           return;
         }
@@ -319,14 +324,17 @@ export class BackendManager extends EventEmitter {
     this.startupHealthStart = Date.now();
 
     return new Promise((resolve, reject) => {
+      this.startupReject = reject;
       const poll = () => {
         if (Date.now() - this.startupHealthStart > STARTUP_HEALTH_TIMEOUT_MS) {
+          this.startupReject = null;
           this.clearStartupHealthPoll();
           reject(new Error(`Health check timed out after ${STARTUP_HEALTH_TIMEOUT_MS}ms`));
           return;
         }
 
         if (!this.process || this.process.killed) {
+          this.startupReject = null;
           this.clearStartupHealthPoll();
           reject(new Error("Process exited before becoming healthy"));
           return;
@@ -335,6 +343,7 @@ export class BackendManager extends EventEmitter {
         this.checkHealth()
           .then((healthy) => {
             if (healthy) {
+              this.startupReject = null;
               this.clearStartupHealthPoll();
               this.crashedCount = 0;
               this.consecutiveHealthFailures = 0;

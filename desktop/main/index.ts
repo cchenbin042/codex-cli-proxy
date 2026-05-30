@@ -76,16 +76,24 @@ function createLoadingWindow(): BrowserWindow {
   body { margin:0; padding:0; font-family:-apple-system,sans-serif;
     background:#0a0a0f; color:#e0e0e8; display:flex; align-items:center;
     justify-content:center; height:100vh; }
-  .box { text-align:center; }
+  .box { text-align:center; max-width:420px; padding:20px; }
   h1 { font-size:2em; font-weight:700; color:#6c8cff; margin:0; }
-  p { color:#8888a0; margin:12px 0 0; }
+  p { color:#8888a0; margin:12px 0 0; font-size:13px; line-height:1.6; }
   .spinner { margin-top:20px; width:24px; height:24px; border:3px solid #2a2a3a;
     border-top-color:#6c8cff; border-radius:50%; animation:spin .8s linear infinite;
     display:inline-block; }
+  .hint { margin-top:24px; padding:12px 16px; background:#1a1a2a; border-radius:8px;
+    font-size:11px; color:#6b6b7b; text-align:left; line-height:1.7; }
+  .hint code { color:#a78bfa; background:#111118; padding:1px 4px; border-radius:3px; }
   @keyframes spin { to { transform:rotate(360deg); } }
 </style></head><body>
-  <div class="box"><h1>cli-proxy</h1>
-  <p>正在启动代理服务...</p><div class="spinner"></div></div>
+  <div class="box"><h1>codex-proxy</h1>
+  <p>正在启动代理服务...</p><div class="spinner"></div>
+  <div class="hint"><strong>首次使用？</strong><br>
+  请编辑 <code>%USERPROFILE%\\.cli-proxy\\config.yaml</code><br>
+  将 <code>sk-xxx</code> 替换为您的 API Key 后重启应用<br><br>
+  获取 Key: <a href="https://platform.deepseek.com/api_keys" style="color:#6c8cff;">DeepSeek</a>
+  &nbsp;·&nbsp; <a href="https://api.siliconflow.cn" style="color:#6c8cff;">SiliconFlow</a></div>
 </body></html>`)
   );
 
@@ -136,10 +144,12 @@ function setupErrorHandlers(bm: BackendManager): void {
       "代理启动失败",
       "代理服务反复崩溃，已停止自动重试。\n\n" +
       "请检查：\n" +
+      "  • %USERPROFILE%\\.cli-proxy\\config.yaml 中的 API Key 是否为 sk-xxx 占位符\n" +
+      "  • 如是，请替换为您的实际 API Key\n" +
       "  • Python 环境是否正常\n" +
-      "  • config.yaml 中的 API Key 是否有效\n" +
-      "  • 端口是否被其他程序占用\n\n" +
-      "修复后请手动重启代理：托盘右键 → 启动代理"
+      "  • 端口 8317 是否被其他程序占用\n\n" +
+      "修复后请手动重启代理：托盘右键 → 启动代理\n\n" +
+      "获取 API Key: https://platform.deepseek.com/api_keys"
     );
     // Notify renderer
     mainWindow?.webContents.send("backend:crash-exhausted");

@@ -46,6 +46,8 @@ class ProviderConfig:
     _key_index: int = field(default=0, repr=False)
 
     def get_api_key(self) -> str:
+        if not self.api_keys:
+            return ""
         key = self.api_keys[self._key_index % len(self.api_keys)]
         self._key_index += 1
         return key
@@ -64,6 +66,8 @@ class Config:
     _key_index: int = field(default=0, repr=False)
 
     def get_api_key(self) -> str:
+        if not self.api_keys:
+            return ""
         key = self.api_keys[self._key_index % len(self.api_keys)]
         self._key_index += 1
         return key
@@ -103,12 +107,14 @@ def load_config(path: str = "config.yaml") -> Config:
     deepseek = data.get("deepseek", {})
     api_keys = deepseek.get("api_keys", [])
 
-    # Filter out placeholder keys
+    # Filter out placeholder keys — warn but don't exit (let UI handle)
     valid_keys = [k for k in api_keys if k and k != "sk-xxx"]
     if not valid_keys:
-        raise SystemExit(
-            "No valid API key configured in config.yaml. "
-            "Replace 'sk-xxx' with your actual DeepSeek API key."
+        print(
+            "[WARNING] No valid API key configured in config.yaml. "
+            "Replace 'sk-xxx' with your actual API key(s), then restart the proxy. "
+            "See: https://platform.deepseek.com/api_keys",
+            flush=True,
         )
 
     reliability_data = data.get("reliability", {})
