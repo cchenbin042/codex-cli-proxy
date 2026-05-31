@@ -104,7 +104,11 @@ async def lifespan(application: FastAPI):
         application.state.providers["deepseek"] = DeepSeekProvider(
             config.api_base, config.api_keys
         )
-        _logger.info("Default DeepSeek provider initialized (api_base=%s)", config.api_base)
+        _logger.info("Default DeepSeek provider initialized (api_base=%s, keys=%d)",
+                     config.api_base, len(config.api_keys))
+        if not config.api_keys:
+            _logger.warning("No API keys configured — requests will fail. "
+                          "Set CLI_PROXY_API_KEYS env var or edit config.yaml.")
 
     # Initialize response cache (LRU + TTL)
     application.state.cache = ResponseCache(max_size=100, ttl_seconds=300.0)
@@ -139,6 +143,15 @@ async def debug_middleware(request: Request, call_next):
     _logger.info(">>> %s %s  headers=%s", request.method, request.url.path, safe_headers)
     response = await call_next(request)
     _logger.info("<<< %s %s  status=%s", request.method, request.url.path, response.status_code)
+    # Log response body for 5xx errors to diagnose circuit/concurrency rejections
+    if response.status_code >= 500:
+        try:
+            body = response.body if hasattr(response, "body") else b""
+            if body:
+                body_str = body.decode("utf-8", errors="replace")[:500]
+                _logger.warning("<<< %s %s  error body=%s", request.method, request.url.path, body_str)
+        except Exception:
+            pass
     return response
 
 

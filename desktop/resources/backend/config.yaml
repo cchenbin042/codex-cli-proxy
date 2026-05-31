@@ -4,8 +4,7 @@ server:
 
 deepseek:
   api_base: "https://api.deepseek.com"
-  api_keys:
-    - "sk-xxx"
+  api_keys: []
   # 关闭 DeepSeek 思考模式，加快响应速度（默认 false）
   thinking_disabled: true
 
@@ -39,9 +38,7 @@ model_map:
 providers:
   bailian:
     api_base: "https://dashscope.aliyuncs.com/compatible-mode"
-    api_keys:
-      - "sk-xxx"
+    api_keys: []
   siliconflow:
     api_base: "https://api.siliconflow.cn"
-    api_keys:
-      - "sk-xxx"
+    api_keys: []

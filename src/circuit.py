@@ -48,7 +48,14 @@ class CircuitBreaker:
             if time.monotonic() - self._opened_at >= self.cooldown_seconds:
                 self._state = State.HALF_OPEN
                 self._probe_in_flight = False
+                _logger.info("CircuitBreaker: OPEN → HALF_OPEN (cooldown expired)")
             else:
+                remaining = self.cooldown_seconds - (time.monotonic() - self._opened_at)
+                _logger.warning(
+                    "CircuitBreaker: request rejected (state=OPEN, cooldown_remaining=%.1fs, "
+                    "failures=%d/%d)",
+                    remaining, self._failure_count, self.failure_threshold,
+                )
                 return False
 
         # HALF_OPEN: allow only one probe request at a time
@@ -62,9 +69,11 @@ class CircuitBreaker:
                                 2 * self.cooldown_seconds)
 
             if self._probe_in_flight:
+                _logger.warning("CircuitBreaker: request rejected (state=HALF_OPEN, probe in flight)")
                 return False
             self._probe_in_flight = True
             self._probe_started_at = time.monotonic()
+            _logger.info("CircuitBreaker: HALF_OPEN probe allowed")
             return True
 
         return False
@@ -82,10 +91,19 @@ class CircuitBreaker:
         """Record a failed upstream response."""
         self._probe_in_flight = False
         if self._state == State.HALF_OPEN:
+            _logger.warning("CircuitBreaker: HALF_OPEN probe failed → OPEN (cooldown=%.1fs)",
+                          self.cooldown_seconds)
             self._state = State.OPEN
             self._opened_at = time.monotonic()
         elif self._state == State.CLOSED:
             self._failure_count += 1
             if self._failure_count >= self.failure_threshold:
+                _logger.warning(
+                    "CircuitBreaker: failure threshold reached (%d/%d) → OPEN (cooldown=%.1fs)",
+                    self._failure_count, self.failure_threshold, self.cooldown_seconds,
+                )
                 self._state = State.OPEN
                 self._opened_at = time.monotonic()
+            else:
+                _logger.info("CircuitBreaker: failure %d/%d",
+                           self._failure_count, self.failure_threshold)
