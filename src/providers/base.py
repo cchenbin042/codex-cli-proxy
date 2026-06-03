@@ -9,6 +9,13 @@ import httpx
 _logger = logging.getLogger("cli-proxy")
 
 
+class MissingApiKeyError(Exception):
+    """Raised when a provider has no API key configured."""
+    def __init__(self, provider_name: str = ""):
+        super().__init__(f"{provider_name} API key is not configured" if provider_name else "API key is not configured")
+        self.provider_name = provider_name
+
+
 class BaseProvider:
     """LLM API provider with OpenAI-compatible chat completions endpoint.
 
@@ -37,9 +44,12 @@ class BaseProvider:
 
         Returns the raw httpx.Response for the caller to inspect status/headers.
         """
+        api_key = self.get_api_key()
+        if not api_key:
+            raise MissingApiKeyError(self.name)
         url = f"{self.api_base}/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.get_api_key()}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         return await http_client.post(url, headers=headers, json=payload)
@@ -52,9 +62,15 @@ class BaseProvider:
         The caller is responsible for parsing the lines and handling the
         state machine. Yields an error SSE line on upstream 4xx/5xx.
         """
+        api_key = self.get_api_key()
+        if not api_key:
+            _logger.error("%s API key is empty — check config.yaml or CLI_PROXY_API_KEYS env var", self.name)
+            yield f"data: {json.dumps({'type': 'error', 'error': {'code': 'no_api_key', 'message': f'{self.name} API key is not configured'}})}"
+            return
+
         url = f"{self.api_base}/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.get_api_key()}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 

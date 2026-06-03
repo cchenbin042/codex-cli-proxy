@@ -7,6 +7,14 @@ import random
 from pathlib import Path
 from contextlib import asynccontextmanager
 
+# Force UTF-8 output on Windows to avoid UnicodeEncodeError on console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException
@@ -19,7 +27,7 @@ from src import store
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = str(PROJECT_ROOT / "config.yaml")
 from src.converter.request import convert_request
-from src.converter.response import convert_nonstream, stream_generator
+from src.converter.response import convert_nonstream, stream_generator, UpstreamError
 from src.logger import (log_request, log_response, log_error, log_conversation,
                          log_upstream_response, log_downstream_response)
 from src.tracer import TraceMiddleware, get_trace_id
@@ -30,7 +38,7 @@ from src.providers.qwen import QwenProvider
 from src.providers.moonshot import MoonshotProvider
 from src.providers.bailian import BailianProvider
 from src.providers.siliconflow import SiliconFlowProvider
-from src.providers.base import BaseProvider
+from src.providers.base import BaseProvider, MissingApiKeyError
 from src.cache import ResponseCache
 from src.audit import AuditWriter
 
@@ -99,16 +107,22 @@ async def lifespan(application: FastAPI):
             _logger.info("Provider '%s' initialized (api_base=%s, keys=%d)",
                          pname, pcfg.api_base, len(pcfg.api_keys))
 
-    # Always ensure a default deepseek provider from top-level config
+    # Always ensure a default deepseek provider from top-level config,
+    # but only if it has keys or no other provider is available.
     if "deepseek" not in application.state.providers:
-        application.state.providers["deepseek"] = DeepSeekProvider(
-            config.api_base, config.api_keys
-        )
-        _logger.info("Default DeepSeek provider initialized (api_base=%s, keys=%d)",
-                     config.api_base, len(config.api_keys))
+        if config.api_keys or not application.state.providers:
+            application.state.providers["deepseek"] = DeepSeekProvider(
+                config.api_base, config.api_keys
+            )
+            _logger.info("Default DeepSeek provider initialized (api_base=%s, keys=%d)",
+                         config.api_base, len(config.api_keys))
         if not config.api_keys:
-            _logger.warning("No API keys configured — requests will fail. "
-                          "Set CLI_PROXY_API_KEYS env var or edit config.yaml.")
+            if application.state.providers:
+                _logger.info("DeepSeek has no keys, using other providers: %s",
+                             list(application.state.providers.keys()))
+            else:
+                _logger.warning("No API keys configured — requests will fail. "
+                              "Set CLI_PROXY_API_KEYS env var or edit config.yaml.")
 
     # Initialize response cache (LRU + TTL)
     application.state.cache = ResponseCache(max_size=100, ttl_seconds=300.0)
@@ -166,11 +180,22 @@ def _resolve_provider_for_request(
     """Resolve provider and vendor model name for a request model.
 
     Uses config.model_map with 'provider:model' format for routing.
-    Falls back to deepseek provider.
+    Falls back to any available provider if the target is not configured.
     """
     provider_name = config.get_provider_name(model)
     vendor_model = config.get_provider_model(model)
-    provider = providers.get(provider_name, providers.get("deepseek"))
+    provider = providers.get(provider_name)
+    if provider is None:
+        # Fall back to any available provider (not just deepseek)
+        for pname, p in providers.items():
+            provider = p
+            vendor_model = vendor_model if vendor_model != model else model
+            _logger.info("Provider '%s' not found, falling back to '%s'",
+                         provider_name, pname)
+            break
+        if provider is None:
+            _logger.error("No provider available — request will fail")
+            provider = providers.get("deepseek")
     return provider, vendor_model
 
 
@@ -355,7 +380,22 @@ async def proxy_responses(request: Request):
                                      msg_count, int((time.time() - start) * 1000),
                                      "completed", stream=True)
                         return
-                    except (httpx.ConnectError, httpx.ReadError) as e:
+                    except UpstreamError as e:
+                        # Client/config errors (4xx, missing key, etc.) —
+                        # don't trip circuit breaker, just forward the error to client
+                        if e.status_code is None or e.status_code < 500:
+                            _logger.warning("Upstream error in stream (status=%s): %s", e.status_code, e)
+                            _write_audit(request.app.state.audit, model, vendor_model,
+                                         msg_count, int((time.time() - start) * 1000),
+                                         f"upstream_{e.status_code}", stream=True)
+                            return
+                        log_error(f"Stream failed: {e}")
+                        cb.record_failure()
+                        _write_audit(request.app.state.audit, model, vendor_model,
+                                     msg_count, int((time.time() - start) * 1000),
+                                     "stream_error", stream=True)
+                        return
+                    except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as e:
                         last_exception = e
                         _logger.warning("Stream error (attempt %d/%d): %s",
                                       attempt + 1, max_retries, e)
@@ -412,6 +452,19 @@ async def proxy_responses(request: Request):
             http_client=request.app.state.http,
             max_retries=config.reliability.retry.max_retries,
             backoff_base=config.reliability.retry.backoff_base,
+        )
+    except MissingApiKeyError as e:
+        elapsed = int((time.time() - start) * 1000)
+        log_response(model, elapsed, "no_api_key")
+        request.app.state.semaphore.release()
+        _write_audit(request.app.state.audit, model, vendor_model,
+                     msg_count, elapsed, "no_api_key", stream=False)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "type": "error",
+                "error": {"code": "no_api_key", "message": str(e)},
+            },
         )
     except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as e:
         elapsed = int((time.time() - start) * 1000)
@@ -529,6 +582,27 @@ async def cache_status(request: Request):
     """Get current cache state: entry count, max size, TTL."""
     cache: ResponseCache = request.app.state.cache
     return {"entries": len(cache), "max_size": cache.max_size, "ttl_seconds": cache.ttl}
+
+
+@app.post("/admin/circuit/reset")
+async def circuit_reset(request: Request):
+    """Reset the circuit breaker to CLOSED state."""
+    cb: CircuitBreaker = request.app.state.circuit_breaker
+    prev_state = cb.state.value
+    cb.reset()
+    return {"success": True, "previous_state": prev_state, "current_state": cb.state.value}
+
+
+@app.get("/admin/circuit/status")
+async def circuit_status(request: Request):
+    """Get circuit breaker current state."""
+    cb: CircuitBreaker = request.app.state.circuit_breaker
+    return {
+        "state": cb.state.value,
+        "failure_count": cb._failure_count,
+        "failure_threshold": cb.failure_threshold,
+        "cooldown_seconds": cb.cooldown_seconds,
+    }
 
 
 @app.get("/health")

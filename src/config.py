@@ -76,17 +76,36 @@ class Config:
         return self.model_map.get(model, model)
 
     def get_provider_name(self, model: str) -> str:
-        """Extract provider name from model_map value (format: 'provider:model')."""
+        """Extract provider name from model_map value (format: 'provider:model').
+
+        Falls back to __default__ mapping if the model is not found, and finally
+        to "deepseek" if nothing else matches.
+        """
         mapped = self.model_map.get(model, model)
         if ":" in mapped:
             return mapped.split(":", 1)[0]
+        # Check for __default__ fallback
+        default_mapped = self.model_map.get("__default__", "")
+        if isinstance(default_mapped, str) and ":" in default_mapped:
+            return default_mapped.split(":", 1)[0]
+        if isinstance(default_mapped, str) and default_mapped:
+            return default_mapped  # bare provider name (e.g. "siliconflow")
         return "deepseek"
 
     def get_provider_model(self, model: str) -> str:
-        """Extract vendor model name from model_map value (format: 'provider:model')."""
+        """Extract vendor model name from model_map value (format: 'provider:model').
+
+        Falls back to __default__ mapping if the model is not found.
+        """
         mapped = self.model_map.get(model, model)
         if ":" in mapped:
             return mapped.split(":", 1)[1]
+        # Check for __default__ fallback
+        default_mapped = self.model_map.get("__default__", "")
+        if isinstance(default_mapped, str) and ":" in default_mapped:
+            return default_mapped.split(":", 1)[1]
+        if isinstance(default_mapped, str) and default_mapped:
+            return model  # bare provider name → pass through original model
         return mapped
 
 
@@ -141,14 +160,14 @@ def load_config(path: str = "config.yaml") -> Config:
         burst_size=rl_data.get("burst_size", 30),
     )
 
-    # Parse provider-specific configurations
+    # Parse provider-specific configurations.
+    # Always create provider entries (even with empty keys) to preserve api_base
+    # for later env-var injection in _apply_env_overrides.
     providers: dict[str, ProviderConfig] = {}
     providers_data = data.get("providers", {})
     for pname, pdata in providers_data.items():
         pkeys = pdata.get("api_keys", [])
         pvalid_keys = [k for k in pkeys if k and k not in PLACEHOLDER]
-        if not pvalid_keys:
-            continue
         providers[pname] = ProviderConfig(
             api_base=pdata.get("api_base", "https://api.deepseek.com"),
             api_keys=pvalid_keys,
@@ -180,6 +199,7 @@ def _apply_env_overrides(config: Config) -> Config:
       - CLI_PROXY_API_KEYS (comma-separated, overrides deepseek.api_keys)
       - CLI_PROXY_API_BASE (overrides deepseek.api_base)
       - CLI_PROXY_THINKING_DISABLED (accepts "true"/"1"/"yes" vs others)
+      - CLI_PROXY_<NAME>_API_KEYS (overrides providers.<name>.api_keys)
     """
     if env_keys := os.environ.get("CLI_PROXY_API_KEYS"):
         api_keys = [k.strip() for k in env_keys.split(",") if k.strip()]
@@ -192,5 +212,24 @@ def _apply_env_overrides(config: Config) -> Config:
 
     if env_thinking := os.environ.get("CLI_PROXY_THINKING_DISABLED"):
         config.thinking_disabled = env_thinking.lower() in ("true", "1", "yes")
+
+    # Apply provider-specific env var overrides (e.g. CLI_PROXY_QWEN_API_KEYS)
+    for env_key, env_val in os.environ.items():
+        if not env_key.startswith("CLI_PROXY_") or not env_key.endswith("_API_KEYS"):
+            continue
+        if env_key == "CLI_PROXY_API_KEYS":
+            continue  # already handled above
+        pname = env_key[len("CLI_PROXY_"):-len("_API_KEYS")].lower()
+        pkeys = [k.strip() for k in env_val.split(",") if k.strip()]
+        pvalid = [k for k in pkeys if k and k != "sk-xxx" and k != "***"]
+        if not pvalid:
+            continue
+        if pname in config.providers:
+            config.providers[pname].api_keys = pvalid
+        else:
+            config.providers[pname] = ProviderConfig(
+                api_base=config.api_base,
+                api_keys=pvalid,
+            )
 
     return config

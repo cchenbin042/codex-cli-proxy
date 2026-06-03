@@ -87,6 +87,13 @@ class CircuitBreaker:
         elif self._state == State.CLOSED:
             self._failure_count = 0
 
+    def reset(self) -> None:
+        """Force reset to CLOSED state (admin use only)."""
+        self._state = State.CLOSED
+        self._failure_count = 0
+        self._probe_in_flight = False
+        _logger.info("CircuitBreaker: manually reset → CLOSED")
+
     def record_failure(self) -> None:
         """Record a failed upstream response."""
         self._probe_in_flight = False

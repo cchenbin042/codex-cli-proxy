@@ -1,36 +1,30 @@
 // src/components/dashboard/ProviderGrid.tsx
 import { useProviders } from "../../hooks/useProviders";
-import { CheckCircle2, MinusCircle } from "lucide-react";
-
-const PLACEHOLDER_PROVIDERS = [
-  { name: "deepseek", label: "DeepSeek", enabled: false },
-  { name: "siliconflow", label: "SiliconFlow", enabled: false },
-  { name: "qwen", label: "通义千问", enabled: false },
-  { name: "bailian", label: "阿里百炼", enabled: false },
-  { name: "moonshot", label: "Moonshot", enabled: false },
-];
+import { CheckCircle2, MinusCircle, PackageOpen } from "lucide-react";
 
 export default function ProviderGrid() {
-  const { data: providers } = useProviders();
+  const { data: providers, isLoading } = useProviders();
   const list = providers ?? [];
 
-  const displayList =
-    list.length > 0
-      ? list.map((p) => ({
-          name: p.name,
-          label: p.name,
-          enabled: p.enabled,
-          isDefault: p.is_default,
-        }))
-      : PLACEHOLDER_PROVIDERS.map((p) => ({
-          ...p,
-          isDefault: false,
-        }));
+  const displayList = list.map((p) => ({
+    name: p.name,
+    label: p.name,
+    enabled: p.enabled,
+    isDefault: p.is_default,
+  }));
 
   return (
     <div className="card p-5">
       <h3 className="section-header">供应商状态</h3>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+      {isLoading ? (
+        <p className="text-text-dim text-sm py-6 text-center">加载中...</p>
+      ) : displayList.length === 0 ? (
+        <div className="flex flex-col items-center py-10 text-text-dim">
+          <PackageOpen size={32} className="mb-2" />
+          <p className="text-sm">暂无供应商，请在"供应商"页面添加</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
         {displayList.map((p) => (
           <div
             key={p.name}
@@ -60,7 +54,8 @@ export default function ProviderGrid() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

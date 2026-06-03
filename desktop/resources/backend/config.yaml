@@ -23,10 +23,11 @@ reliability:
     burst_size: 30
 
 model_map:
-  "gpt-5.5": "deepseek-v4-pro"
-  "gpt-5.4": "deepseek-v4-pro"
-  "gpt-5.4-mini": "deepseek-v4-pro"
-  "deepseek-v4-pro": "deepseek-v4-pro"
+  __default__: "siliconflow:deepseek-ai/DeepSeek-V4-Pro"
+  "gpt-5.5": "siliconflow:deepseek-ai/DeepSeek-V4-Pro"
+  "gpt-5.4": "siliconflow:deepseek-ai/DeepSeek-V4-Pro"
+  "gpt-5.4-mini": "siliconflow:deepseek-ai/DeepSeek-V4-Pro"
+  "deepseek-v4-pro": "siliconflow:deepseek-ai/DeepSeek-V4-Pro"
   # 硅基流动模型
   "glm-5.1": "siliconflow:Pro/zai-org/GLM-5.1"
 

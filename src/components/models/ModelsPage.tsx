@@ -37,18 +37,19 @@ export default function ModelsPage() {
   const refetch = () => queryClient.invalidateQueries({ queryKey: ["config"] });
 
   const add = async () => {
-    if (!newCodex.trim() || !newVendor.trim()) return;
+    if (!newCodex.trim() || !newVendor.trim()) {
+      alert("请填写 Codex 模型名 和 上游模型名");
+      return;
+    }
     try {
       const cfg = await electronAPI.getConfig();
       cfg.model_map = cfg.model_map || {};
       cfg.model_map[newCodex.trim()] = `${newProvider}:${newVendor.trim()}`;
       const result = await electronAPI.updateConfig(cfg);
-      if (!result.success && result.error) alert(result.error);
-      else {
-        setNewCodex("");
-        setNewVendor("");
-        refetch();
-      }
+      if (!result.success && result.error) throw new Error(result.error);
+      setNewCodex("");
+      setNewVendor("");
+      refetch();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : String(e));
     }
@@ -195,7 +196,12 @@ export default function ModelsPage() {
               placeholder="deepseek-v4-pro"
             />
           </div>
-          <button className="btn btn-primary btn-sm" onClick={add}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={!newCodex.trim() || !newVendor.trim()}
+            onClick={add}
+          >
             <Plus size={14} />
             添加
           </button>

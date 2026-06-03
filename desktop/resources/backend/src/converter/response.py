@@ -13,6 +13,13 @@ from src import store
 _logger = logging.getLogger("cli-proxy")
 
 
+class UpstreamError(Exception):
+    """Raised when upstream returns an error response during streaming."""
+    def __init__(self, message: str = "", status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def _gen_id(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:12]}"
 
@@ -147,8 +154,16 @@ async def stream_generator(
 
             # Handle error events from provider
             if chunk.get("type") == "error":
-                yield _sse_event("error", chunk.get("error", {}))
-                return
+                error_data = chunk.get("error", {})
+                error_code = error_data.get("code", "")
+                status_code = None
+                if isinstance(error_code, str) and error_code.startswith("upstream_"):
+                    try:
+                        status_code = int(error_code.split("_", 1)[1])
+                    except (ValueError, IndexError):
+                        pass
+                yield _sse_event("error", error_data)
+                raise UpstreamError(error_data.get("message", "upstream error"), status_code)
 
             choices = chunk.get("choices", [])
             if not choices:
@@ -231,12 +246,6 @@ async def stream_generator(
             if "usage" in chunk:
                 usage = chunk["usage"]
 
-    except httpx.ConnectError as e:
-        yield _sse_event("error", {
-            "type": "error",
-            "error": {"code": "upstream_unavailable", "message": str(e)},
-        })
-        return
     finally:
         if _owns_client:
             await _client.aclose()
