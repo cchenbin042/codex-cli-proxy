@@ -53,6 +53,7 @@ export interface ProviderConfig {
   api_base: string;
   api_keys: string[];
   enabled: boolean;
+  default_model: string;
 }
 
 export interface AppConfig {
@@ -87,6 +88,7 @@ declare global {
       getBackendStatus: () => Promise<BackendInfo>;
       getConfig: () => Promise<AppConfig>;
       updateConfig: (config: AppConfig) => Promise<{ success: boolean; error?: string }>;
+      resetConfig: () => Promise<{ success: boolean; error?: string }>;
       testProvider: (provider: string, apiKey: string) => Promise<{ success: boolean; latency?: string; error?: string }>;
       getStatsSummary: () => Promise<StatsSummary>;
       getDailyStats: (days: number) => Promise<DailyStats[]>;
@@ -140,6 +142,7 @@ function api(): NonNullable<Window["electronAPI"]> {
     getBackendStatus: async () => ({ status: "stopped" as const, port: 8317, pid: null, uptime: 0, startTime: null, consecutiveHealthFailures: 0 }),
     getConfig: async () => ({ server: { host: "127.0.0.1", port: 8317 }, deepseek: { api_base: "", api_keys: [], thinking_disabled: false }, model_map: {}, reliability: { retry: { max_retries: 3, backoff_base_seconds: 2 }, circuit_breaker: { failure_threshold: 5, cooldown_seconds: 30 }, concurrency: { max_concurrent: 10, queue_timeout_seconds: 30 }, rate_limit: { requests_per_minute: 30, burst_capacity: 30 } }, providers: {} }),
     updateConfig: async () => ({ success: false, error: "Electron 环境不可用" }),
+    resetConfig: async () => ({ success: false, error: "Electron 环境不可用" }),
     testProvider: async () => ({ success: false, error: "Electron 环境不可用" }),
     getStatsSummary: async () => ({ totalTokens: 0, promptTokens: 0, completionTokens: 0, cacheHitRate: 0, cacheHits: 0, totalRequests: 0, totalErrors: 0, healthyProviders: 0, totalProviders: 0, avgLatencyMs: 0, streamRatio: 0 }),
     getDailyStats: async () => [],
@@ -189,6 +192,7 @@ export const electronAPI = {
   // Config
   getConfig: () => api().getConfig(),
   updateConfig: (config: AppConfig) => api().updateConfig(config),
+  resetConfig: () => api().resetConfig(),
 
   // Provider test
   testProvider: (provider: string, apiKey: string) => api().testProvider(provider, apiKey),

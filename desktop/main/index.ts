@@ -167,6 +167,35 @@ function setupErrorHandlers(bm: BackendManager): void {
   });
 }
 
+// ── Env Var Management ────────────────────────────────────────────
+
+/**
+ * Synchronize process.env with config: delete all previously-set
+ * CLI_PROXY_* vars, then apply the current config values.
+ *
+ * This ensures that when a user removes an API key from the UI,
+ * the corresponding env var is CLEARED (not left with a stale value).
+ */
+function syncEnvFromConfig(cfg: ConfigService): void {
+  // 1. Delete ALL known CLI_PROXY_* vars to clear stale values
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith("CLI_PROXY_")) {
+      delete process.env[key];
+    }
+  }
+
+  // 2. Apply current config values
+  const pyEnv = cfg.getEnvForPython();
+  for (const [key, value] of Object.entries(pyEnv)) {
+    process.env[key] = value;
+    console.log(`[main] Env: ${key}=${value.substring(0, 12)}...`);
+  }
+
+  if (Object.keys(pyEnv).length === 0) {
+    console.log("[main] Env: no API keys configured (all CLI_PROXY_* vars cleared)");
+  }
+}
+
 // ── App Lifecycle ─────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
@@ -183,11 +212,7 @@ app.whenReady().then(async () => {
   configService = new ConfigService(() => {
     // Config changed → refresh env vars, then restart Python backend
     console.log("[main] Config change detected. Refreshing env vars and restarting backend...");
-    const pyEnv = configService!.getEnvForPython();
-    for (const [key, value] of Object.entries(pyEnv)) {
-      process.env[key] = value;
-      console.log(`[main] Env updated: ${key}=${value.substring(0, 12)}...`);
-    }
+    syncEnvFromConfig(configService!);
     backend?.restart().catch((e) => {
       console.error(`[main] Config-triggered restart failed: ${e.message}`);
     });
@@ -244,11 +269,7 @@ app.whenReady().then(async () => {
 
   // ── Start backend ──
   // Inject API keys from config into environment before starting Python
-  const pyEnv = configService.getEnvForPython();
-  for (const [key, value] of Object.entries(pyEnv)) {
-    process.env[key] = value;
-    console.log(`[main] Env: ${key}=${value.substring(0, 12)}...`);
-  }
+  syncEnvFromConfig(configService);
 
   // If started with --minimized (auto-launch), don't show window
   const startMinimized = process.argv.includes("--minimized");

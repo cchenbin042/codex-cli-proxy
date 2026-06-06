@@ -1,5 +1,6 @@
 """Configuration loader for cli-proxy."""
 
+import json
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -43,6 +44,7 @@ class ReliabilityConfig:
 class ProviderConfig:
     api_base: str
     api_keys: list[str]
+    default_model: str = ""
     _key_index: int = field(default=0, repr=False)
 
     def get_api_key(self) -> str:
@@ -75,6 +77,22 @@ class Config:
     def map_model(self, model: str) -> str:
         return self.model_map.get(model, model)
 
+    @staticmethod
+    def normalize_model_name(model: str) -> str:
+        """Normalize a model name for the upstream provider.
+
+        Handles HuggingFace-style names (org/Model-Name) by extracting the
+        last segment and lowercasing it.  Simple names pass through as-is.
+
+        >>> Config.normalize_model_name("deepseek-ai/DeepSeek-V4-Pro")
+        'deepseek-v4-pro'
+        >>> Config.normalize_model_name("gpt-5.5")
+        'gpt-5.5'
+        """
+        if "/" in model:
+            model = model.rsplit("/", 1)[-1]
+        return model.lower()
+
     def get_provider_name(self, model: str) -> str:
         """Extract provider name from model_map value (format: 'provider:model').
 
@@ -84,29 +102,42 @@ class Config:
         mapped = self.model_map.get(model, model)
         if ":" in mapped:
             return mapped.split(":", 1)[0]
-        # Check for __default__ fallback
+        if model in self.model_map:
+            # Model is in map with a bare value (no provider prefix) → use deepseek
+            return "deepseek"
+        # Model not in map — check __default__ fallback
         default_mapped = self.model_map.get("__default__", "")
         if isinstance(default_mapped, str) and ":" in default_mapped:
             return default_mapped.split(":", 1)[0]
         if isinstance(default_mapped, str) and default_mapped:
-            return default_mapped  # bare provider name (e.g. "siliconflow")
+            if default_mapped in self.providers:
+                return default_mapped
+            return "deepseek"
         return "deepseek"
 
     def get_provider_model(self, model: str) -> str:
         """Extract vendor model name from model_map value (format: 'provider:model').
 
-        Falls back to __default__ mapping if the model is not found.
+        For models not in the map, normalizes the name (handling HuggingFace
+        org/model format) so it's more likely to be accepted upstream.
+        Falls back to __default__ if configured.
         """
         mapped = self.model_map.get(model, model)
         if ":" in mapped:
             return mapped.split(":", 1)[1]
-        # Check for __default__ fallback
+        if model in self.model_map:
+            # Model is in map with a bare value → use the mapped value directly
+            return mapped
+        # Model not in map — check __default__ fallback first
         default_mapped = self.model_map.get("__default__", "")
         if isinstance(default_mapped, str) and ":" in default_mapped:
             return default_mapped.split(":", 1)[1]
         if isinstance(default_mapped, str) and default_mapped:
-            return model  # bare provider name → pass through original model
-        return mapped
+            if default_mapped in self.providers:
+                return self.normalize_model_name(model)
+            return default_mapped
+        # No __default__ — normalize dynamically (handles HF-style names)
+        return self.normalize_model_name(model)
 
 
 def load_config(path: str = "config.yaml") -> Config:
@@ -200,6 +231,7 @@ def _apply_env_overrides(config: Config) -> Config:
       - CLI_PROXY_API_BASE (overrides deepseek.api_base)
       - CLI_PROXY_THINKING_DISABLED (accepts "true"/"1"/"yes" vs others)
       - CLI_PROXY_<NAME>_API_KEYS (overrides providers.<name>.api_keys)
+      - CLI_PROXY_MODEL_MAP (JSON object, merges into model_map)
     """
     if env_keys := os.environ.get("CLI_PROXY_API_KEYS"):
         api_keys = [k.strip() for k in env_keys.split(",") if k.strip()]
@@ -213,12 +245,29 @@ def _apply_env_overrides(config: Config) -> Config:
     if env_thinking := os.environ.get("CLI_PROXY_THINKING_DISABLED"):
         config.thinking_disabled = env_thinking.lower() in ("true", "1", "yes")
 
-    # Apply provider-specific env var overrides (e.g. CLI_PROXY_QWEN_API_KEYS)
+    # Merge model_map from desktop (JSON-encoded, overrides bundled config.yaml)
+    if env_model_map := os.environ.get("CLI_PROXY_MODEL_MAP"):
+        try:
+            desktop_map = json.loads(env_model_map)
+            if isinstance(desktop_map, dict):
+                # Desktop model_map takes priority over bundled YAML
+                config.model_map = {**config.model_map, **desktop_map}
+        except json.JSONDecodeError:
+            pass
+
+    # Apply provider-specific env var overrides (e.g. CLI_PROXY_SILICONFLOW_API_KEYS)
     for env_key, env_val in os.environ.items():
-        if not env_key.startswith("CLI_PROXY_") or not env_key.endswith("_API_KEYS"):
+        if not env_key.startswith("CLI_PROXY_"):
             continue
-        if env_key == "CLI_PROXY_API_KEYS":
+        if env_key in ("CLI_PROXY_API_KEYS", "CLI_PROXY_MODEL_MAP", "CLI_PROXY_THINKING_DISABLED"):
             continue  # already handled above
+        if env_key.endswith("_DEFAULT_MODEL"):
+            pname = env_key[len("CLI_PROXY_"):-len("_DEFAULT_MODEL")].lower()
+            if pname in config.providers:
+                config.providers[pname].default_model = env_val
+            continue
+        if not env_key.endswith("_API_KEYS"):
+            continue
         pname = env_key[len("CLI_PROXY_"):-len("_API_KEYS")].lower()
         pkeys = [k.strip() for k in env_val.split(",") if k.strip()]
         pvalid = [k for k in pkeys if k and k != "sk-xxx" and k != "***"]

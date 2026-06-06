@@ -8,6 +8,7 @@ export interface ProviderEntry {
   enabled: boolean;
   is_default: boolean;
   api_keys: string[];
+  default_model: string;
 }
 
 function configToProviders(config: AppConfig): ProviderEntry[] {
@@ -18,6 +19,7 @@ function configToProviders(config: AppConfig): ProviderEntry[] {
     enabled: pcfg.enabled,
     is_default: name === defaultProvider,
     api_keys: pcfg.api_keys || [],
+    default_model: pcfg.default_model || "",
   }));
 }
 

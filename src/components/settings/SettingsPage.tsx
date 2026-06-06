@@ -1,8 +1,9 @@
 // src/components/settings/SettingsPage.tsx
 import { useState, useEffect } from "react";
 import { useConfig, useUpdateConfig } from "../../hooks/useConfig";
+import { electronAPI } from "../../lib/api/ipc";
 import type { AppConfig } from "../../lib/api/ipc";
-import { Save, Server, ScrollText, Brain, Palette } from "lucide-react";
+import { Save, Server, ScrollText, Brain, Palette, RotateCcw } from "lucide-react";
 
 const DEFAULT_CONFIG: AppConfig = {
   server: { host: "127.0.0.1", port: 8317 },
@@ -18,11 +19,12 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 export default function SettingsPage() {
-  const { data: config } = useConfig();
+  const { data: config, refetch } = useConfig();
   const updateConfig = useUpdateConfig();
   const [local, setLocal] = useState<AppConfig>(DEFAULT_CONFIG);
   const [theme, setTheme] = useState("dark");
   const [language, setLanguage] = useState("zh");
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (config) setLocal(config);
@@ -41,6 +43,26 @@ export default function SettingsPage() {
       if (!result.success && result.error) alert(result.error);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm("确定要恢复出厂设置吗？\n\n这将删除所有配置（包括 API Key、模型映射、可靠性参数），并重启代理服务。\n\n此操作不可撤销！")) return;
+    if (!confirm("再次确认：所有配置将被清除，代理将恢复到初始状态。")) return;
+
+    setResetting(true);
+    try {
+      const result = await electronAPI.resetConfig();
+      if (result.success) {
+        alert("已恢复出厂设置。代理正在重启...");
+        refetch();
+      } else {
+        alert(result.error || "重置失败");
+      }
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -95,6 +117,26 @@ export default function SettingsPage() {
             <div className="text-[0.68rem] text-text-dim mt-0.5 font-mono">reasoning_stores.json</div>
           </div>
           <button className="btn btn-danger btn-sm">清除 Reasoning</button>
+        </div>
+      </Section>
+
+      {/* Factory Reset */}
+      <Section icon={<RotateCcw size={16} />} title="恢复出厂设置">
+        <div className="col-span-full flex items-center justify-between">
+          <div>
+            <div className="text-[0.8rem]">重置所有配置</div>
+            <div className="text-[0.68rem] text-text-dim mt-0.5">
+              删除所有 API Key、模型映射、可靠性配置，恢复到初始状态
+            </div>
+          </div>
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={handleReset}
+            disabled={resetting}
+          >
+            <RotateCcw size={13} />
+            {resetting ? "重置中..." : "恢复出厂设置"}
+          </button>
         </div>
       </Section>
 

@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("config:get"),
   updateConfig: (config: any): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("config:update", config),
+  resetConfig: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("config:reset"),
 
   // ── Provider test (Phase 3) ──
   testProvider: (provider: string, apiKey: string): Promise<{ success: boolean; error?: string }> =>

@@ -61,6 +61,7 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: codex-proxy
   deleteAppDataOnUninstall: false
+  include: build/installer.nsh
 
 publish:
   provider: github

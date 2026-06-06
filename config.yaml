@@ -23,7 +23,6 @@ model_map:
   gpt-5.4: deepseek-v4-pro
   gpt-5.4-mini: deepseek-v4-pro
   deepseek-v4-pro: deepseek-v4-pro
-  glm-5.1: siliconflow:Pro/zai-org/GLM-5.1
 providers:
   bailian:
     api_base: https://dashscope.aliyuncs.com/compatible-mode

@@ -76,6 +76,28 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle("config:reset", async () => {
+    try {
+      // 1. Reset config to factory defaults (deletes ~/.cli-proxy/)
+      configService.resetAll();
+
+      // 2. Clear all CLI_PROXY_* env vars from the Electron process
+      for (const key of Object.keys(process.env)) {
+        if (key.startsWith("CLI_PROXY_")) {
+          delete process.env[key];
+        }
+      }
+      console.log("[ipc] All CLI_PROXY_* env vars cleared after factory reset.");
+
+      // 3. Restart backend with clean config
+      await backend.restart();
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // ── Provider connectivity test ──
   ipcMain.handle("providers:test", async (_event, provider: string, apiKey: string) => {
     try {

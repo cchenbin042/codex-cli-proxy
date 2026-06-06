@@ -180,23 +180,55 @@ def _resolve_provider_for_request(
     """Resolve provider and vendor model name for a request model.
 
     Uses config.model_map with 'provider:model' format for routing.
-    Falls back to any available provider if the target is not configured.
+    Falls back to any available provider if the target is not configured,
+    choosing a vendor model that the fallback provider actually supports.
     """
     provider_name = config.get_provider_name(model)
     vendor_model = config.get_provider_model(model)
     provider = providers.get(provider_name)
     if provider is None:
-        # Fall back to any available provider (not just deepseek)
+        # Fall back to any available provider (not just deepseek).
+        # Need a vendor model valid for the fallback provider.
         for pname, p in providers.items():
             provider = p
-            vendor_model = vendor_model if vendor_model != model else model
-            _logger.info("Provider '%s' not found, falling back to '%s'",
-                         provider_name, pname)
+            # Search model_map for an entry that routes to this provider
+            fallback_vendor = _find_model_for_provider(pname)
+            if fallback_vendor is None:
+                # Try the provider's configured default_model
+                pcfg = config.providers.get(pname)
+                if pcfg and pcfg.default_model:
+                    fallback_vendor = pcfg.default_model
+            if fallback_vendor is None:
+                # Check __default__ as a last resort
+                default = config.model_map.get("__default__", "")
+                if isinstance(default, str) and ":" in default:
+                    fallback_vendor = default.split(":", 1)[1]
+                elif isinstance(default, str) and default and default not in config.providers:
+                    fallback_vendor = default
+                else:
+                    fallback_vendor = Config.normalize_model_name(model)
+            vendor_model = fallback_vendor
+            _logger.info("Provider '%s' not found, falling back to '%s' "
+                         "(model=%s, vendor_model=%s)",
+                         provider_name, pname, model, vendor_model)
             break
         if provider is None:
             _logger.error("No provider available — request will fail")
             provider = providers.get("deepseek")
     return provider, vendor_model
+
+
+def _find_model_for_provider(provider_name: str) -> str | None:
+    """Search model_map for an entry that maps to *provider_name*.
+
+    Returns the vendor model part (stripping 'provider:' prefix), or None.
+    """
+    for m, v in config.model_map.items():
+        if m == "__default__":
+            continue
+        if ":" in v and v.split(":", 1)[0] == provider_name:
+            return v.split(":", 1)[1]
+    return None
 
 
 def _write_audit(

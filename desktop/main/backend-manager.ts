@@ -171,7 +171,6 @@ export class BackendManager extends EventEmitter {
         env: {
           ...process.env,
           PYTHONUNBUFFERED: "1",
-          CLI_PROXY_API_KEYS: process.env.CLI_PROXY_API_KEYS || "",
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,

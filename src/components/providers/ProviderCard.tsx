@@ -25,6 +25,7 @@ export default function ProviderCard({ provider, onSaved }: Props) {
   const [expanded, setExpanded] = useState(!!provider._isNew);
   const [name, setName] = useState(provider.name);
   const [apiBase, setApiBase] = useState(provider.api_base);
+  const [defaultModel, setDefaultModel] = useState(provider.default_model || "");
   const [keys, setKeys] = useState<string[]>(
     provider.api_keys.length > 0 ? provider.api_keys : [""]
   );
@@ -53,6 +54,7 @@ export default function ProviderCard({ provider, onSaved }: Props) {
         api_base: apiBase,
         enabled: keys.some((k) => k.trim().length > 0),
         api_keys: keys.filter((k) => k.trim()),
+        default_model: defaultModel.trim(),
       };
       if (config.model_map?.["__default__"] === oldName) {
         config.model_map["__default__"] = name;
@@ -168,6 +170,16 @@ export default function ProviderCard({ provider, onSaved }: Props) {
                 value={apiBase}
                 onChange={(e) => setApiBase(e.target.value)}
                 placeholder="https://api.deepseek.com"
+              />
+            </FormGroup>
+
+            {/* Default Model */}
+            <FormGroup label="默认模型" icon={<Key size={13} />}>
+              <input
+                className="input"
+                value={defaultModel}
+                onChange={(e) => setDefaultModel(e.target.value)}
+                placeholder="deepseek-ai/DeepSeek-V4-Pro"
               />
             </FormGroup>
 

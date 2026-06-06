@@ -27,6 +27,7 @@ export interface ProviderConfig {
   api_base: string;
   api_keys: string[];
   enabled: boolean;
+  default_model: string;
 }
 
 export interface ReliabilityConfig {
@@ -54,10 +55,10 @@ const DEFAULT_CONFIG: AppConfig = {
     thinking_disabled: true,
   },
   model_map: {
-    "gpt-5.5": "deepseek:deepseek-v4-pro",
-    "gpt-5.4": "deepseek:deepseek-v4-pro",
-    "gpt-5.4-mini": "deepseek:deepseek-v4-pro",
-    "deepseek-v4-pro": "deepseek:deepseek-v4-pro",
+    "gpt-5.5": "deepseek-v4-pro",
+    "gpt-5.4": "deepseek-v4-pro",
+    "gpt-5.4-mini": "deepseek-v4-pro",
+    "deepseek-v4-pro": "deepseek-v4-pro",
   },
   reliability: {
     retry: { max_retries: 3, backoff_base: 2.0 },
@@ -70,6 +71,7 @@ const DEFAULT_CONFIG: AppConfig = {
 
 const KNOWN_PROVIDERS = ["deepseek", "qwen", "bailian", "moonshot", "siliconflow"];
 const MAX_BACKUPS = 5;
+const CONFIG_VERSION = 1;  // bumped when config schema changes
 
 // ── ConfigService ────────────────────────────────────────────────
 
@@ -99,6 +101,10 @@ export class ConfigService {
   /**
    * Load the full configuration (YAML + decrypted vault keys).
    * On first run, copies the default config template.
+   *
+   * Stale-config detection: if vault.bin has keys but no .version marker
+   * exists, this is a reinstall over a previous installation whose
+   * uninstaller did not clean up user data.  Auto-reset in that case.
    */
   load(): AppConfig {
     if (this.config) return this.config;
@@ -109,6 +115,33 @@ export class ConfigService {
     if (!fs.existsSync(this.configPath)) {
       this.saveToDisk(DEFAULT_CONFIG);
       console.log("[config] First run — created default config.");
+    }
+
+    // ── Stale-config detection (reinstall without prior cleanup) ──
+    const versionFile = path.join(this.configDir, ".version");
+    const vaultExists = fs.existsSync(this.vaultPath);
+    const hasVersion = fs.existsSync(versionFile);
+
+    if (vaultExists && !hasVersion) {
+      // vault.bin from a previous install whose uninstaller predates
+      // the cleanup script — reset to factory defaults
+      console.log("[config] Stale vault.bin from previous install detected. Resetting to defaults.");
+      try {
+        fs.rmSync(this.configDir, { recursive: true, force: true });
+      } catch (e: any) {
+        console.warn(`[config] Failed to remove stale config: ${e.message}`);
+      }
+      this.ensureConfigDir();
+      this.saveToDisk(DEFAULT_CONFIG);
+      // Write version marker so we don't re-trigger on restart
+      fs.writeFileSync(versionFile, String(CONFIG_VERSION), "utf-8");
+      this.config = structuredClone(DEFAULT_CONFIG);
+      return this.config;
+    }
+
+    // Normal path: ensure version marker exists
+    if (!hasVersion) {
+      fs.writeFileSync(versionFile, String(CONFIG_VERSION), "utf-8");
     }
 
     // Read YAML config
@@ -207,15 +240,22 @@ export class ConfigService {
     }
 
     // For other providers, pass keys as individual env vars
-    // (Python config.py will need to be extended or we write a temp config)
     for (const [name, pcfg] of Object.entries(config.providers)) {
       if (pcfg.api_keys.length > 0) {
         env[`CLI_PROXY_${name.toUpperCase()}_API_KEYS`] = pcfg.api_keys.join(",");
+      }
+      if (pcfg.default_model) {
+        env[`CLI_PROXY_${name.toUpperCase()}_DEFAULT_MODEL`] = pcfg.default_model;
       }
     }
 
     if (config.deepseek.thinking_disabled) {
       env.CLI_PROXY_THINKING_DISABLED = "true";
+    }
+
+    // Pass model_map from desktop to Python backend (overrides bundled config.yaml)
+    if (config.model_map && Object.keys(config.model_map).length > 0) {
+      env.CLI_PROXY_MODEL_MAP = JSON.stringify(config.model_map);
     }
 
     return env;
@@ -245,6 +285,43 @@ export class ConfigService {
    */
   getKnownProviders(): string[] {
     return KNOWN_PROVIDERS;
+  }
+
+  /**
+   * Return the config directory path (for use by IPC handlers).
+   */
+  getConfigDir(): string {
+    return this.configDir;
+  }
+
+  /**
+   * Reset all configuration to factory defaults.
+   * Deletes the entire config directory and re-creates a fresh default config.
+   * Returns the new default config.
+   */
+  resetAll(): AppConfig {
+    console.log("[config] Resetting all configuration to factory defaults...");
+
+    // Clear in-memory cache first
+    this.config = null;
+
+    // Remove config directory entirely
+    try {
+      if (fs.existsSync(this.configDir)) {
+        fs.rmSync(this.configDir, { recursive: true, force: true });
+        console.log(`[config] Removed config directory: ${this.configDir}`);
+      }
+    } catch (e: any) {
+      console.error(`[config] Failed to remove config directory: ${e.message}`);
+    }
+
+    // Re-create directory and default config
+    this.ensureConfigDir();
+    this.saveToDisk(DEFAULT_CONFIG);
+    fs.writeFileSync(path.join(this.configDir, ".version"), String(CONFIG_VERSION), "utf-8");
+
+    console.log("[config] Factory reset complete.");
+    return { ...DEFAULT_CONFIG };
   }
 
   // ── Vault Operations ──────────────────────────────────────────
@@ -299,6 +376,7 @@ export class ConfigService {
             api_base: "https://api.deepseek.com",
             api_keys: [],
             enabled: false,
+            default_model: "",
           };
         }
         config.providers[pname].api_keys = vaultKeys[pname];
@@ -414,6 +492,7 @@ export class ConfigService {
           api_base: pcfg.api_base || merged.deepseek.api_base,
           api_keys: pcfg.api_keys || [],
           enabled: pcfg.enabled ?? false,
+          default_model: pcfg.default_model || "",
         };
       }
     }
